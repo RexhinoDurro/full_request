@@ -1,19 +1,27 @@
 // ===========================
-// src/pages/Request.tsx - Form page
+// src/pages/Request.tsx - Form page with Django backend integration
 // ===========================
 
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import StepIndicator from '../components/StepIndicator';
 import TextQuestion from '../components/form/TextQuestion';
 import SelectionQuestion from '../components/form/SelectionQuestion';
 import ContactInfo from '../components/form/ContactInfo';
 import { useForm } from '../hooks/useForm';
+import { submitFormData } from '../utils/api';
 import type { Question } from '../types/form';
 
 const RequestPage: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(1);
-  const { formData, updateFormData } = useForm();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionResult, setSubmissionResult] = useState<{
+    success: boolean;
+    message: string;
+    submissionId?: number;
+  } | null>(null);
+  
+  const { formData, updateFormData, resetForm } = useForm();
 
   const questions: Question[] = [
     {
@@ -36,7 +44,7 @@ const RequestPage: React.FC = () => {
     {
       type: 'selection',
       question: 'Has the company acknowledged the presence of your funds?',
-      options: ['Yes, full-time', 'Yes, part-time'],
+      options: ['Yes, full-time', 'Yes, part-time', 'No', 'Partially'],
       field: 'step4',
     },
     {
@@ -87,23 +95,85 @@ const RequestPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = () => {
-    if (isCurrentStepValid()) {
-      const emailBody = `
-New Form Submission:
+  const handleSubmit = async () => {
+    if (!isCurrentStepValid() || isSubmitting) return;
 
-${questions.map((q, index) => `${index + 1}. ${q.question}\nAnswer: ${formData[q.field]}`).join('\n\n')}
-
-9. Contact Information:
-Name: ${formData.name}
-Email: ${formData.email}
-Phone: ${formData.phone}
-      `;
+    setIsSubmitting(true);
+    
+    try {
+      const result = await submitFormData(formData);
+      setSubmissionResult(result);
       
-      alert('Form submitted successfully! (In a real application, this would be sent to your email)');
-      console.log('Form data:', formData);
+      if (result.success) {
+        // Reset form on successful submission
+        setTimeout(() => {
+          resetForm();
+          setCurrentStep(1);
+          setSubmissionResult(null);
+        }, 5000);
+      }
+    } catch (error) {
+      setSubmissionResult({
+        success: false,
+        message: 'Network error. Please check your connection and try again.',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
+  const handleNewSubmission = () => {
+    setSubmissionResult(null);
+    resetForm();
+    setCurrentStep(1);
+  };
+
+  // Show submission result
+  if (submissionResult) {
+    return (
+      <div className="flex-1 py-12 bg-gradient-to-br from-blue-50 to-purple-50 min-h-screen">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-white shadow-2xl rounded-2xl p-12 text-center">
+            {submissionResult.success ? (
+              <div className="space-y-6">
+                <CheckCircle className="w-16 h-16 text-green-500 mx-auto" />
+                <h2 className="text-3xl font-bold text-gray-800">Submission Successful!</h2>
+                <p className="text-lg text-gray-600">{submissionResult.message}</p>
+                {submissionResult.submissionId && (
+                  <p className="text-sm text-gray-500">
+                    Reference ID: #{submissionResult.submissionId}
+                  </p>
+                )}
+                <div className="space-y-4">
+                  <p className="text-gray-600">
+                    Thank you for your submission. Our team will review your information and get back to you soon.
+                  </p>
+                  <button
+                    onClick={handleNewSubmission}
+                    className="px-8 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    Submit Another Form
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <AlertCircle className="w-16 h-16 text-red-500 mx-auto" />
+                <h2 className="text-3xl font-bold text-gray-800">Submission Failed</h2>
+                <p className="text-lg text-gray-600">{submissionResult.message}</p>
+                <button
+                  onClick={() => setSubmissionResult(null)}
+                  className="px-8 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const renderCurrentQuestion = () => {
     if (currentStep <= 8) {
@@ -153,10 +223,17 @@ Phone: ${formData.phone}
           {currentStep === 9 ? (
             <button
               onClick={handleSubmit}
-              disabled={!isCurrentStepValid()}
-              className="px-10 py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-lg font-medium"
+              disabled={!isCurrentStepValid() || isSubmitting}
+              className="flex items-center space-x-2 px-10 py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-lg font-medium"
             >
-              Submit Application
+              {isSubmitting ? (
+                <>
+                  <Loader className="w-5 h-5 animate-spin" />
+                  <span>Submitting...</span>
+                </>
+              ) : (
+                <span>Submit Application</span>
+              )}
             </button>
           ) : (
             <button
