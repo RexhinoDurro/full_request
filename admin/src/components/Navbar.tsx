@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Settings, User } from 'lucide-react';
+import { LogOut, User } from 'lucide-react';
 import { adminApiClient } from '../utils/api';
 
 interface NavbarProps {

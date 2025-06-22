@@ -7,7 +7,7 @@ interface NavbarProps {
   setCurrentPage: (page: string) => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ currentPage, setCurrentPage }) => {
+const Navbar: React.FC<NavbarProps> = ({ setCurrentPage }) => {
   return (
     <nav className="bg-black/20 backdrop-blur-sm border-b border-purple-300/20 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-5">
