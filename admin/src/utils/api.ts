@@ -55,8 +55,39 @@ export interface SubmissionDetail {
 
 export interface SubmissionStats {
   total_submissions: number;
-  recent_submissions_30_days: number;
   service_type_breakdown: Record<string, number>;
+  country_breakdown: Record<string, number>;
+  issue_timeframe_breakdown: Record<string, number>;
+  daily_submissions: Array<{ date: string; count: number }>;
+  date_range: {
+    from: string;
+    to: string;
+    preset: string;
+  };
+}
+
+export interface FilterOptions {
+  service_types: string[];
+  issue_timeframes: string[];
+  acknowledgments: string[];
+  primary_goals: string[];
+  heard_abouts: string[];
+  communication_methods: string[];
+  countries: Array<{ code: string; display: string }>;
+}
+
+export interface SubmissionFilters {
+  date_from?: string;
+  date_to?: string;
+  date_preset?: 'today' | '1_week' | '2_weeks' | '30_days';
+  service_type?: string;
+  issue_timeframe?: string;
+  acknowledgment?: string;
+  primary_goal?: string;
+  heard_about?: string;
+  communication_method?: string;
+  country?: string;
+  search?: string;
 }
 
 class AdminApiClient {
@@ -135,6 +166,16 @@ class AdminApiClient {
     }
   }
 
+  private buildQueryString(params: Record<string, any>): string {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, value.toString());
+      }
+    });
+    return searchParams.toString();
+  }
+
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     const response = await this.makeRequest<LoginResponse>('/auth/login/', {
       method: 'POST',
@@ -189,20 +230,44 @@ class AdminApiClient {
     return this.makeRequest('/auth/profile/');
   }
 
-  async getSubmissions(): Promise<{ results: Submission[] }> {
-    return this.makeRequest('/admin/submissions/');
+  async getSubmissions(filters?: SubmissionFilters): Promise<{ results: Submission[] }> {
+    const queryString = filters ? this.buildQueryString(filters) : '';
+    const endpoint = `/admin/submissions/${queryString ? `?${queryString}` : ''}`;
+    return this.makeRequest(endpoint);
   }
 
   async getSubmissionDetail(id: number): Promise<SubmissionDetail> {
     return this.makeRequest(`/admin/submissions/${id}/`);
   }
 
-  async getStats(): Promise<SubmissionStats> {
-    return this.makeRequest('/admin/stats/');
+  async deleteSubmission(id: number): Promise<{ success: boolean; message: string }> {
+    return this.makeRequest(`/admin/submissions/${id}/delete/`, {
+      method: 'DELETE',
+    });
   }
 
-  async downloadSubmissions(): Promise<Blob> {
-    const response = await fetch(`${this.baseURL}/admin/submissions/download/`, {
+  async deleteAllSubmissions(confirmation: string): Promise<{ success: boolean; message: string }> {
+    return this.makeRequest('/admin/submissions/delete-all/', {
+      method: 'POST',
+      body: JSON.stringify({ confirmation }),
+    });
+  }
+
+  async getFilterOptions(): Promise<FilterOptions> {
+    return this.makeRequest('/admin/filter-options/');
+  }
+
+  async getStats(filters?: SubmissionFilters): Promise<SubmissionStats> {
+    const queryString = filters ? this.buildQueryString(filters) : '';
+    const endpoint = `/admin/stats/${queryString ? `?${queryString}` : ''}`;
+    return this.makeRequest(endpoint);
+  }
+
+  async downloadSubmissions(filters?: SubmissionFilters): Promise<Blob> {
+    const queryString = filters ? this.buildQueryString(filters) : '';
+    const endpoint = `/admin/submissions/download/${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
