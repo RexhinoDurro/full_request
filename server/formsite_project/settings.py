@@ -71,19 +71,14 @@ WSGI_APPLICATION = 'formsite_project.wsgi.application'
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL:
-    # Use PostgreSQL from Render with psycopg 3.x compatibility
+    # Use PostgreSQL from Render
     DATABASES = {
         'default': dj_database_url.config(
             default=DATABASE_URL,
             conn_max_age=600,
             conn_health_checks=True,
-            options={
-                'sslmode': 'require',
-            }
         )
     }
-    # Ensure we're using the correct backend for psycopg 3.x
-    DATABASES['default']['ENGINE'] = 'django.db.backends.postgresql'
 else:
     # Fallback to SQLite for local development
     DATABASES = {
