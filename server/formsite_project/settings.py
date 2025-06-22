@@ -1,8 +1,7 @@
 import os
+import dj_database_url
 from pathlib import Path
 from datetime import timedelta
-
-import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -68,15 +67,38 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'formsite_project.wsgi.application'
 
-# Database configuration
-# Use PostgreSQL in production, SQLite for development
+# Database configuration - PostgreSQL for production, SQLite for local development
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+if DATABASE_URL:
+    # Use PostgreSQL from Render
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+else:
+    # Fallback to SQLite for local development
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+
+# Alternative configuration if you want to always use PostgreSQL
+# and have the URL hardcoded (not recommended for security):
+"""
 DATABASES = {
     'default': dj_database_url.config(
-        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
+        default='postgresql://formsite_db_user:IaLr5HhBInpqeRyL4zR4Hkz1NE8T4iPo@dpg-d1c1f995pdvs73ec66ug-a.frankfurt-postgres.render.com/formsite_db',
         conn_max_age=600,
         conn_health_checks=True,
     )
 }
+"""
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -130,17 +152,18 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
-# CORS settings - Update these with your actual frontend URLs after deployment
+# CORS settings - Updated with your actual frontend URLs
 CORS_ALLOWED_ORIGINS = [
-    "https://formsite-client.onrender.com",  # Replace with your actual client URL
-    "https://formsite-admin.onrender.com",   # Replace with your actual admin URL
-    "http://localhost:3000",  # React client dev
-    "http://localhost:5173",  # Vite dev server
-    "http://localhost:5174",  # Vite dev server alternative
+    "https://formsite-client.onrender.com",
+    "https://formsite-admin.onrender.com",
+    # Development URLs
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5174",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174",
-    "http://localhost:3001",  # Admin dashboard dev
+    "http://localhost:3001",
     "http://127.0.0.1:3001",
 ]
 
@@ -181,6 +204,11 @@ LOGGING = {
         'django': {
             'handlers': ['console'],
             'level': 'INFO',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'ERROR',  # Only log database errors
             'propagate': False,
         },
     },
