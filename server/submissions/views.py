@@ -1,4 +1,4 @@
-# submissions/views.py - Enhanced secure views
+# submissions/views.py - Fix class names to match URLs
 import re
 from django.http import HttpResponse
 from rest_framework import generics, status
@@ -137,8 +137,12 @@ def submit_form(request):
                     'message': 'Duplicate submission detected'
                 }, status=status.HTTP_409_CONFLICT)
             
-            # Save submission
-            submission = serializer.save(ip_address=client_ip)
+            # Save submission with hashed IP
+            submission_data = serializer.validated_data
+            if client_ip:
+                submission_data['ip_address_hash'] = hashlib.sha256(client_ip.encode()).hexdigest()
+            
+            submission = serializer.save(**submission_data)
             
             # Cache submission hash to prevent duplicates
             cache.set(cache_key, True, 3600)  # 1 hour
@@ -185,7 +189,7 @@ def submit_form(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @method_decorator(never_cache, name='dispatch')
-class SecureSubmissionListView(generics.ListAPIView):
+class SubmissionListView(generics.ListAPIView):
     """Ultra-secure admin endpoint to list submissions"""
     serializer_class = SubmissionListSerializer
     permission_classes = [IsAuthenticated]
@@ -267,7 +271,7 @@ class SecureSubmissionListView(generics.ListAPIView):
         return queryset.order_by('-submitted_at')
 
 @method_decorator(never_cache, name='dispatch')
-class SecureSubmissionDetailView(generics.RetrieveAPIView):
+class SubmissionDetailView(generics.RetrieveAPIView):
     """Ultra-secure admin endpoint to view detailed submission"""
     queryset = Submission.objects.all()
     serializer_class = SubmissionDetailSerializer
@@ -291,7 +295,7 @@ class SecureSubmissionDetailView(generics.RetrieveAPIView):
 @throttle_classes([UserRateThrottle])
 @ratelimit(key='user', rate='10/m', method='DELETE', block=True)
 @never_cache
-def secure_delete_submission(request, pk):
+def delete_submission(request, pk):
     """Ultra-secure admin endpoint to delete individual submission"""
     
     try:
@@ -342,7 +346,7 @@ def secure_delete_submission(request, pk):
 @throttle_classes([UserRateThrottle])
 @ratelimit(key='user', rate='1/h', method='POST', block=True)  # Very restrictive
 @never_cache
-def secure_delete_all_submissions(request):
+def delete_all_submissions(request):
     """Ultra-secure admin endpoint to delete all submissions"""
     
     confirmation = request.data.get('confirmation')
@@ -360,14 +364,11 @@ def secure_delete_all_submissions(request):
     try:
         count = Submission.objects.count()
         
-        # Create backup before deletion
-        backup_data = list(Submission.objects.values())
-        
         # Log critical action
         log_security_event(
             'BULK_DATA_DELETION', 'CRITICAL', request,
             f'Admin {request.user.username} deleted ALL {count} submissions',
-            {'backup_created': True, 'deletion_count': count}
+            {'deletion_count': count}
         )
         
         # Perform deletion
@@ -396,3 +397,24 @@ def secure_delete_all_submissions(request):
             'success': False,
             'message': 'Internal server error'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def download_submissions_excel(request):
+    """Download submissions as Excel file"""
+    # This function needs to be implemented
+    return Response({'message': 'Excel download not implemented yet'})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_filter_options(request):
+    """Get filter options for the admin interface"""
+    # This function needs to be implemented
+    return Response({'message': 'Filter options not implemented yet'})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def submission_stats(request):
+    """Get submission statistics"""
+    # This function needs to be implemented
+    return Response({'message': 'Statistics not implemented yet'})

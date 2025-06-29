@@ -1,4 +1,4 @@
-# submissions/serializers.py - Enhanced with security
+# submissions/serializers.py - Complete with all required serializers
 from rest_framework import serializers
 from django.core.validators import EmailValidator, RegexValidator
 from django.utils.html import strip_tags
@@ -197,3 +197,29 @@ class SecureSubmissionCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Submission contains suspicious content")
         
         return attrs
+
+class SubmissionListSerializer(serializers.ModelSerializer):
+    """Serializer for listing submissions (admin view)"""
+    
+    class Meta:
+        model = Submission
+        fields = [
+            'id', 'uuid', 'name', 'email', 'country', 'phone',
+            'submitted_at', 'data_classification', 'anonymized'
+        ]
+        read_only_fields = ['id', 'uuid', 'submitted_at']
+
+class SubmissionDetailSerializer(serializers.ModelSerializer):
+    """Serializer for detailed submission view (admin)"""
+    
+    class Meta:
+        model = Submission
+        fields = [
+            'id', 'uuid', 'step1', 'step2', 'step3', 'step4', 'step5', 'step6', 'step7', 'step8',
+            'name', 'email', 'country', 'phone', 'submitted_at', 'data_classification',
+            'retention_date', 'anonymized', 'checksum'
+        ]
+        read_only_fields = [
+            'id', 'uuid', 'submitted_at', 'checksum', 'email_hash', 'phone_hash',
+            'ip_address_hash', 'user_agent_hash'
+        ]

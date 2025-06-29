@@ -4,22 +4,24 @@ from pathlib import Path
 from datetime import timedelta
 import secrets
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# Generate with: python -c "import secrets; print(secrets.token_urlsafe(50))"
-SECRET_KEY = os.environ.get('SECRET_KEY')
-if not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable is required")
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-development-key-change-in-production')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False  # Never True in production
+DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
-# Allowed hosts - be very specific
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
-if not ALLOWED_HOSTS or ALLOWED_HOSTS == ['']:
-    raise ValueError("ALLOWED_HOSTS environment variable is required")
+# Allowed hosts
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 # Application definition
 INSTALLED_APPS = [
@@ -45,7 +47,7 @@ INSTALLED_APPS = [
     # Local apps
     'submissions',
     'authentication',
-    'security_monitoring',  # New app for security
+    'security_monitoring',
 ]
 
 MIDDLEWARE = [
@@ -83,31 +85,39 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'formsite_project.wsgi.application'
 
-# Database configuration with encryption
-DATABASE_URL = os.environ.get('DATABASE_URL')
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is required")
+# Database configuration
+DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///db.sqlite3')
 
-DATABASES = {
-    'default': dj_database_url.config(
-        default=DATABASE_URL,
-        conn_max_age=600,
-        conn_health_checks=True,
-        ssl_require=True,  # Require SSL
-    )
-}
+if DATABASE_URL.startswith('sqlite'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+else:
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
 
-# Encrypt database backups
-DATABASE_BACKUP_ENCRYPTION_KEY = os.environ.get('DB_BACKUP_KEY')
+# Authentication backends (FIXED: Added Axes backend)
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',  # AxesStandaloneBackend should be first
+    'django.contrib.auth.backends.ModelBackend',
+]
 
-# Password validation - Enhanced
+# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-        'OPTIONS': {'min_length': 12}  # Increased minimum length
+        'OPTIONS': {'min_length': 8}  # Reasonable for development
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -115,22 +125,18 @@ AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
-    {
-        'NAME': 'security_monitoring.validators.CustomPasswordValidator',  # Custom validator
-    }
 ]
 
-# Account lockout settings (django-axes)
+# FIXED: Updated Axes settings (removed deprecated settings)
 AXES_ENABLED = True
 AXES_FAILURE_LIMIT = 3  # Lock after 3 failed attempts
 AXES_COOLOFF_TIME = timedelta(minutes=30)  # 30 minute lockout
-AXES_ONLY_USER_FAILURES = True
-AXES_LOCK_OUT_BY_COMBINATION_USER_AND_IP = True
 AXES_RESET_ON_SUCCESS = True
-AXES_ENABLE_ADMIN = False  # Disable admin interface for axes
+AXES_ENABLE_ADMIN = False
+AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']  # New setting instead of deprecated ones
 
 # Session Security
-SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = not DEBUG  # False for development, True for production
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Strict'
 SESSION_COOKIE_AGE = 3600  # 1 hour sessions
@@ -138,10 +144,9 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_SAVE_EVERY_REQUEST = True
 
 # CSRF Protection
-CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = not DEBUG  # False for development, True for production
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SAMESITE = 'Strict'
-CSRF_TRUSTED_ORIGINS = ALLOWED_HOSTS
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
@@ -149,42 +154,39 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# Static files security
+# Static files
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Media files security (if needed)
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB max file size
-FILE_UPLOAD_PERMISSIONS = 0o644
-
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Enhanced Security Headers
-SECURE_BROWSER_XSS_FILTER = True
-SECURE_CONTENT_TYPE_NOSNIFF = True
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_SECONDS = 31536000  # 1 year
-SECURE_HSTS_PRELOAD = True
-SECURE_SSL_REDIRECT = True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
-SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
+# Enhanced Security Headers (disabled for development)
+if not DEBUG:
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_PRELOAD = True
+    SECURE_SSL_REDIRECT = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# Content Security Policy
-CSP_DEFAULT_SRC = ("'self'",)
-CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'")  # Be more restrictive in production
-CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
-CSP_IMG_SRC = ("'self'", "data:", "https:")
-CSP_FONT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'",)
-CSP_FRAME_ANCESTORS = ("'none'",)
-CSP_BASE_URI = ("'self'",)
-CSP_FORM_ACTION = ("'self'",)
+# FIXED: Updated Content Security Policy to new format
+CONTENT_SECURITY_POLICY = {
+    'DIRECTIVES': {
+        'default-src': ("'self'",),
+        'script-src': ("'self'", "'unsafe-inline'"),
+        'style-src': ("'self'", "'unsafe-inline'"),
+        'img-src': ("'self'", "data:", "https:"),
+        'font-src': ("'self'",),
+        'connect-src': ("'self'",),
+        'frame-ancestors': ("'none'",),
+        'base-uri': ("'self'",),
+        'form-action': ("'self'",),
+    }
+}
 
-# Django REST Framework security
+# Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -194,91 +196,97 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
-        # Remove BrowsableAPIRenderer in production
     ],
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle'
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '100/hour',  # Anonymous users
-        'user': '1000/hour',  # Authenticated users
-        'submit': '5/minute',  # Form submissions
-        'login': '10/hour',   # Login attempts
+        'anon': '100/hour',
+        'user': '1000/hour',
+        'submit': '5/minute',
+        'login': '10/hour',
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
-    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.NamespaceVersioning',
 }
 
-# Enhanced JWT Settings
+# JWT Settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),  # Shorter lifetime
-    'REFRESH_TOKEN_LIFETIME': timedelta(hours=24),   # Shorter refresh
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(hours=24),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
-    'VERIFYING_KEY': None,
-    'AUDIENCE': None,
-    'ISSUER': 'formsite',
-    'JSON_ENCODER': None,
-    'JTI_CLAIM': 'jti',
-    'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp',
-    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=30),
-    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(hours=24),
 }
 
-# CORS settings - Very restrictive
+# CORS settings
 CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "https://formsite-client.onrender.com",
-    "https://formsite-admin.onrender.com",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = False  # Never True in production
-CORS_ALLOWED_ORIGIN_REGEXES = []  # Empty for security
 
 # Rate limiting settings
 RATELIMIT_ENABLE = True
 RATELIMIT_USE_CACHE = 'default'
 
-# Caching for rate limiting
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'CONNECTION_POOL_KWARGS': {
-                'ssl_cert_reqs': None,
-            }
-        },
-        'KEY_PREFIX': 'formsite',
-        'TIMEOUT': 300,
+# Smart cache configuration - tries Redis, falls back to memory cache if Redis unavailable
+try:
+    import redis
+    # Test Redis connection
+    r = redis.Redis.from_url(os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1'))
+    r.ping()
+    # Redis is available
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1'),
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'CONNECTION_POOL_KWARGS': {
+                    'ssl_cert_reqs': None,
+                }
+            },
+            'KEY_PREFIX': 'formsite',
+            'TIMEOUT': 300,
+        }
     }
-}
+    print("✅ Using Redis cache")
+except:
+    # Redis not available, use memory cache
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+        }
+    }
+    print("⚠️ Redis not available, using memory cache")
 
-# Email security (for notifications)
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.environ.get('EMAIL_HOST')
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
-DEFAULT_FROM_EMAIL = 'security@formsite.com'
-
-# Security monitoring settings
-SECURITY_EMAIL_NOTIFICATIONS = True
-SECURITY_LOG_FAILED_LOGINS = True
-SECURITY_LOG_SUSPICIOUS_ACTIVITY = True
-SECURITY_IP_WHITELIST = os.environ.get('ADMIN_IP_WHITELIST', '').split(',')
+# Email settings (optional for development)
+if os.environ.get('EMAIL_HOST'):
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.environ.get('EMAIL_HOST')
+    EMAIL_PORT = 587
+    EMAIL_USE_TLS = True
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
+    DEFAULT_FROM_EMAIL = 'security@formsite.com'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # Data encryption settings
-CRYPTOGRAPHY_KEY = os.environ.get('CRYPTOGRAPHY_KEY')
-if not CRYPTOGRAPHY_KEY:
-    CRYPTOGRAPHY_KEY = secrets.token_urlsafe(32)
+CRYPTOGRAPHY_KEY = os.environ.get('CRYPTOGRAPHY_KEY', secrets.token_urlsafe(32))
+
+# Security monitoring settings
+SECURITY_EMAIL_NOTIFICATIONS = not DEBUG
+SECURITY_LOG_FAILED_LOGINS = True
+SECURITY_LOG_SUSPICIOUS_ACTIVITY = True
+SECURITY_IP_WHITELIST = os.environ.get('ADMIN_IP_WHITELIST', '127.0.0.1,localhost').split(',')
 
 # Audit logging
 AUDITLOG_INCLUDE_ALL_MODELS = True
@@ -289,7 +297,7 @@ AUDITLOG_EXCLUDE_TRACKING_MODELS = (
     'auth.permission',
 )
 
-# Enhanced logging configuration
+# Logging configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -298,81 +306,47 @@ LOGGING = {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
         },
-        'security': {
-            'format': 'SECURITY {levelname} {asctime} {message}',
+        'simple': {
+            'format': '{levelname} {message}',
             'style': '{',
         },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'formatter': 'simple' if DEBUG else 'verbose',
         },
-        'security_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': '/var/log/formsite/security.log',
-            'maxBytes': 1024*1024*10,  # 10MB
-            'backupCount': 5,
-            'formatter': 'security',
-        },
-        'audit_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': '/var/log/formsite/audit.log',
-            'maxBytes': 1024*1024*10,  # 10MB
-            'backupCount': 10,
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'django.log',
             'formatter': 'verbose',
+        } if not DEBUG else {
+            'class': 'logging.NullHandler',
         },
     },
     'loggers': {
         'django': {
             'handlers': ['console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'django.security': {
-            'handlers': ['security_file', 'console'],
             'level': 'INFO',
             'propagate': False,
         },
         'security_monitoring': {
-            'handlers': ['security_file', 'console'],
+            'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': False,
         },
         'auditlog': {
-            'handlers': ['audit_file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'axes': {
-            'handlers': ['security_file'],
+            'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': False,
         },
     },
     'root': {
         'handlers': ['console'],
-        'level': 'WARNING',
+        'level': 'INFO',
     },
 }
 
-# Admin security
-ADMIN_URL_PREFIX = os.environ.get('ADMIN_URL_PREFIX', 'secure-admin-' + secrets.token_urlsafe(8))
-
-# Backup and recovery
-BACKUP_ENCRYPTION_ENABLED = True
-BACKUP_RETENTION_DAYS = 30
-
-# Environment validation
-REQUIRED_ENV_VARS = [
-    'SECRET_KEY',
-    'DATABASE_URL',
-    'ALLOWED_HOSTS',
-    'EMAIL_HOST',
-    'EMAIL_HOST_USER',
-    'EMAIL_HOST_PASSWORD',
-]
-
-missing_vars = [var for var in REQUIRED_ENV_VARS if not os.environ.get(var)]
-if missing_vars:
-    raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+# Create logs directory if it doesn't exist
+if not DEBUG:
+    os.makedirs(BASE_DIR / 'logs', exist_ok=True)

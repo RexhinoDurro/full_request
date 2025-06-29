@@ -1,4 +1,4 @@
-# submissions/models.py - Enhanced with field-level encryption
+# submissions/models.py - Fixed with proper defaults for migration
 from django.db import models
 from django.utils import timezone
 from django_cryptography.fields import encrypt
@@ -6,8 +6,8 @@ from auditlog.registry import auditlog
 import hashlib
 import uuid
 
-class EncryptedSubmission(models.Model):
-    """Enhanced submission model with field-level encryption"""
+class Submission(models.Model):
+    """Advanced submission model with field-level encryption and security features"""
     
     # Unique identifier that's not sequential (security)
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
@@ -27,17 +27,17 @@ class EncryptedSubmission(models.Model):
     email = encrypt(models.EmailField())
     phone = encrypt(models.CharField(max_length=20))
     
-    # Non-encrypted fields for queries (hashed or safe)
+    # Non-encrypted fields for queries (hashed or safe) - WITH DEFAULTS
     country = models.CharField(max_length=10, default='US')  # Country codes are not PII
-    email_hash = models.CharField(max_length=64, db_index=True)  # For duplicate detection
-    phone_hash = models.CharField(max_length=64, db_index=True)  # For duplicate detection
+    email_hash = models.CharField(max_length=64, db_index=True, default='')  # ADDED DEFAULT
+    phone_hash = models.CharField(max_length=64, db_index=True, default='')  # ADDED DEFAULT
     
-    # Metadata
+    # Metadata - WITH DEFAULTS  
     submitted_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    ip_address_hash = models.CharField(max_length=64, db_index=True)  # Hashed IP for privacy
-    user_agent_hash = models.CharField(max_length=64, null=True, blank=True)
+    ip_address_hash = models.CharField(max_length=64, db_index=True, default='')  # ADDED DEFAULT
+    user_agent_hash = models.CharField(max_length=64, null=True, blank=True, default='')  # ADDED DEFAULT
     
-    # Security and audit fields
+    # Security and audit fields - WITH DEFAULTS
     data_classification = models.CharField(
         max_length=20, 
         choices=[
@@ -51,8 +51,8 @@ class EncryptedSubmission(models.Model):
     retention_date = models.DateTimeField(null=True, blank=True)  # For data retention compliance
     anonymized = models.BooleanField(default=False)
     
-    # Integrity verification
-    checksum = models.CharField(max_length=64, editable=False)
+    # Integrity verification - WITH DEFAULT
+    checksum = models.CharField(max_length=64, editable=False, default='')  # ADDED DEFAULT
     
     class Meta:
         ordering = ['-submitted_at']
@@ -110,7 +110,7 @@ class EncryptedSubmission(models.Model):
         return f"{self.name} - {self.country} ({self.submitted_at.strftime('%Y-%m-%d %H:%M')})"
 
 # Register for audit logging
-auditlog.register(EncryptedSubmission)
+auditlog.register(Submission)
 
 class DataRetentionLog(models.Model):
     """Log data retention and deletion activities"""
@@ -149,7 +149,7 @@ class SecurityIncident(models.Model):
     severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES)
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='OPEN')
     description = models.TextField()
-    affected_submissions = models.ManyToManyField(EncryptedSubmission, blank=True)
+    affected_submissions = models.ManyToManyField(Submission, blank=True)
     discovered_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     assigned_to = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
