@@ -1,13 +1,86 @@
+# Core Django and API
 Django==4.2.7
 djangorestframework==3.14.0
-django-cors-headers==4.3.1
-python-decouple==3.8
 djangorestframework-simplejwt==5.3.0
+
+# Database and deployment
+psycopg[binary]==3.2.3
+dj-database-url==2.1.0
+gunicorn==21.2.0
+whitenoise==6.6.0
+
+# Security packages
+django-cors-headers==4.3.1
+django-ratelimit==4.1.0
+django-axes==6.1.1
+django-csp==3.7
+django-security==0.19.0
+django-cryptography==1.1
+django-auditlog==2.3.0
+bleach==6.1.0
+cryptography==41.0.7
+
+# Input validation and sanitization
+html5lib==1.1
+defusedxml==0.7.1
+python-decouple==3.8
+
+# Email and notifications
+django-email-verification==0.3.4
+
+# Monitoring and logging
+django-extensions==3.2.3
+django-debug-toolbar==4.2.0  # Only for development
+django-health-check==3.17.0
+
+# File handling
 openpyxl==3.1.2
 xlsxwriter==3.1.9
 Pillow==10.4.0
-psycopg[binary]==3.2.3
-gunicorn==21.2.0
-dj-database-url==2.1.0
-whitenoise==6.6.0
+
+# Caching and sessions
+redis==5.0.1
+django-redis==5.4.0
+hiredis==2.2.3
+
+# Environment and configuration
+python-dotenv==1.0.0
 setuptools==75.1.0
+
+# Additional security tools
+bandit==1.7.5  # Security linter
+safety==2.3.5  # Dependency vulnerability checker
+django-password-validators==1.7.1
+
+# Rate limiting and throttling
+django-ratelimit==4.1.0
+django-slowparsing==0.2.0
+
+# IP and geographic tools
+geoip2==4.7.0
+maxminddb==2.2.0
+
+# Testing and development (optional)
+pytest-django==4.7.0
+pytest-cov==4.1.0
+factory-boy==3.3.0
+
+# Backup and recovery
+django-dbbackup==4.0.2
+
+# Content Security Policy
+django-csp==3.7
+
+# HTTPS and SSL
+certifi==2023.7.22
+
+# Performance monitoring
+django-silk==5.0.4  # Performance profiling
+
+# Additional validation
+validators==0.22.0
+phonenumbers==8.13.26  # Phone number validation
+
+# Anti-spam and bot protection
+django-recaptcha==3.0.0  # Optional: Google reCAPTCHA
+django-honeypot==1.1.0   # Honeypot fields
