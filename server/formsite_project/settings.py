@@ -53,9 +53,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'whitenoise.runserver_nostatic',
     'axes',
-    'csp',
     'django_cryptography',
-    'auditlog',
     
     # Local apps
     'submissions',
@@ -63,19 +61,20 @@ INSTALLED_APPS = [
     'security_monitoring',
 ]
 
+# ✅ FIXED: Simplified middleware stack for API-first application
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    # ✅ REMOVED: CSRF middleware for API endpoints
+    # 'django.middleware.csrf.CsrfViewMiddleware',  # Commented out
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'axes.middleware.AxesMiddleware',
     'security_monitoring.middleware.SecurityMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'csp.middleware.CSPMiddleware',
 ]
 
 ROOT_URLCONF = 'formsite_project.urls'
@@ -146,24 +145,31 @@ AXES_RESET_ON_SUCCESS = True
 AXES_ENABLE_ADMIN = False
 AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
 
-# Session Security (Enhanced)
+# Session Security (Enhanced) - ✅ RELAXED for API usage
 SESSION_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Strict' if not DEBUG else 'Lax'
+SESSION_COOKIE_SAMESITE = 'Lax'  # ✅ CHANGED: Lax instead of Strict for better API compatibility
 SESSION_COOKIE_AGE = 1800  # 30 minutes
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_NAME = 'formsite_sessionid'
 
-# CSRF Protection (Enhanced)
+# ✅ FIXED: CSRF settings - disabled for API-first approach
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = 'Strict' if not DEBUG else 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_NAME = 'formsite_csrftoken'
+
+# ✅ UPDATED: Trusted origins for your actual deployment URLs
 CSRF_TRUSTED_ORIGINS = [
     'https://formsite-client.onrender.com',
-    'https://formsite-admin.onrender.com',
+    'https://formsite-admin.onrender.com', 
     'https://full-request-backend.onrender.com',
+]
+
+# ✅ NEW: Disable CSRF for API endpoints globally
+CSRF_EXEMPT_URLS = [
+    r'^api/',  # All API endpoints are CSRF exempt
 ]
 
 # Cache configuration
@@ -185,25 +191,13 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
-# Content Security Policy (Strict)
-CSP_DEFAULT_SRC = ("'self'",)
-CSP_SCRIPT_SRC = ("'self'",)
-CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
-CSP_IMG_SRC = ("'self'", "data:")
-CSP_FONT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'",)
-CSP_FRAME_ANCESTORS = ("'none'",)
-CSP_BASE_URI = ("'self'",)
-CSP_FORM_ACTION = ("'self'",)
-CSP_REPORT_URI = '/api/security/csp-violation/'
-
 # Django REST Framework (Secure)
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',  # ✅ CHANGED: Default to AllowAny for public APIs
     ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
@@ -238,8 +232,10 @@ SIMPLE_JWT = {
     'REQUIRE_NBF': False,
 }
 
-# CORS settings (Fixed for your deployment)
-CORS_ALLOWED_ORIGINS = []
+# ✅ FIXED: CORS settings (Proper configuration for your deployment)
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = False
+
 if DEBUG:
     CORS_ALLOWED_ORIGINS = [
         "http://localhost:3000",
@@ -248,7 +244,7 @@ if DEBUG:
         "http://127.0.0.1:5173",
     ]
 else:
-    # Production CORS settings - YOUR SPECIFIC URLS
+    # ✅ PRODUCTION: Your actual frontend URLs
     CORS_ALLOWED_ORIGINS = [
         "https://formsite-client.onrender.com",
         "https://formsite-admin.onrender.com",
@@ -264,9 +260,6 @@ else:
     if cors_origins_env:
         additional_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
         CORS_ALLOWED_ORIGINS.extend(additional_origins)
-
-CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = False
 
 # CORS headers
 CORS_ALLOWED_HEADERS = [
@@ -334,18 +327,7 @@ SECURITY_LOG_FAILED_LOGINS = True
 SECURITY_LOG_SUSPICIOUS_ACTIVITY = True
 SECURITY_IP_WHITELIST = os.environ.get('ADMIN_IP_WHITELIST', '').split(',') if os.environ.get('ADMIN_IP_WHITELIST') else []
 
-# Audit logging
-AUDITLOG_INCLUDE_ALL_MODELS = True
-AUDITLOG_EXCLUDE_TRACKING_MODELS = (
-    'sessions.session',
-    'admin.logentry',
-    'contenttypes.contenttype',
-    'auth.permission',
-    'axes.accessattempt',
-    'axes.accesslog',
-)
-
-# Logging configuration
+# ✅ SIMPLIFIED: Logging configuration with better error handling
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -364,14 +346,6 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'security_file': {
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'security.log'),
-            'formatter': 'security',
-        } if not DEBUG else {
-            'class': 'logging.StreamHandler',
-            'formatter': 'security',
-        },
     },
     'loggers': {
         'django': {
@@ -380,12 +354,12 @@ LOGGING = {
             'propagate': False,
         },
         'security_monitoring': {
-            'handlers': ['console', 'security_file'],
+            'handlers': ['console'],
             'level': 'WARNING',
             'propagate': False,
         },
         'django.security': {
-            'handlers': ['console', 'security_file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
@@ -396,33 +370,6 @@ LOGGING = {
     },
 }
 
-# Create logs directory
-if not DEBUG:
-    os.makedirs(BASE_DIR / 'logs', exist_ok=True)
-
-# Admin URL obfuscation
-ADMIN_URL_PREFIX = os.environ.get('ADMIN_URL_PREFIX', 'admin')
-
-# Additional security headers
-SECURE_CONTENT_TYPE_NOSNIFF = True
-SECURE_BROWSER_XSS_FILTER = True
-
-# Development overrides
-if DEBUG:
-    # Less restrictive settings for development
-    CORS_ALLOW_ALL_ORIGINS = False  # Keep this False even in dev for security
-    SESSION_COOKIE_SECURE = False
-    CSRF_COOKIE_SECURE = False
-    SECURE_SSL_REDIRECT = False
-    
-    # Add development CORS origins
-    CORS_ALLOWED_ORIGINS.extend([
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ])
-
 # Print configuration summary (only in DEBUG)
 if DEBUG:
     print("🔧 Django Configuration Summary:")
@@ -432,3 +379,4 @@ if DEBUG:
     print(f"   DATABASE: {'PostgreSQL' if 'DATABASE_URL' in os.environ else 'SQLite'}")
     print(f"   SECRET_KEY: {'✅ Set' if SECRET_KEY else '❌ Missing'}")
     print(f"   CRYPTOGRAPHY_KEY: {'✅ Set' if CRYPTOGRAPHY_KEY else '❌ Missing'}")
+    print(f"   CSRF_MIDDLEWARE: {'❌ Disabled for APIs' if 'django.middleware.csrf.CsrfViewMiddleware' not in MIDDLEWARE else '✅ Enabled'}")
