@@ -9,7 +9,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Security-first configuration
 SECRET_KEY = os.environ.get('SECRET_KEY')
 if not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable is required")
+    if os.environ.get('DEBUG', 'False').lower() == 'true':
+        SECRET_KEY = 'dev-key-change-in-production'
+    else:
+        raise ValueError("SECRET_KEY environment variable is required in production")
 
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
@@ -21,10 +24,18 @@ else:
     allowed_hosts_env = os.environ.get('ALLOWED_HOSTS')
     if allowed_hosts_env:
         ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(',')]
+    
+    # Render.com specific configuration
     if 'RENDER' in os.environ:
         render_host = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
         if render_host:
             ALLOWED_HOSTS.append(render_host)
+    
+    # Add your specific backend URL
+    ALLOWED_HOSTS.extend([
+        'full-request-backend.onrender.com',
+        'formsite-backend.onrender.com',  # backup name
+    ])
 
 # Application definition
 INSTALLED_APPS = [
@@ -41,7 +52,6 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'whitenoise.runserver_nostatic',
-    # 'django_ratelimit',  # ✅ DISABLED: Requires shared cache
     'axes',
     'csp',
     'django_cryptography',
@@ -118,7 +128,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-        'OPTIONS': {'min_length': 12}  # Increased from 8
+        'OPTIONS': {'min_length': 12}
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -126,38 +136,37 @@ AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
-    # ✅ DISABLED: Custom validator requires implementation
-    # {
-    #     'NAME': 'security_monitoring.validators.CustomPasswordValidator',
-    # },
 ]
 
-# Axes configuration (brute force protection) - ✅ FIXED: Removed deprecated setting
+# Axes configuration (brute force protection)
 AXES_ENABLED = True
 AXES_FAILURE_LIMIT = 3
 AXES_COOLOFF_TIME = timedelta(hours=1)
 AXES_RESET_ON_SUCCESS = True
 AXES_ENABLE_ADMIN = False
 AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
-# AXES_ONLY_USER_FAILURES = False  # ✅ REMOVED: Deprecated setting
 
 # Session Security (Enhanced)
 SESSION_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Strict'
+SESSION_COOKIE_SAMESITE = 'Strict' if not DEBUG else 'Lax'
 SESSION_COOKIE_AGE = 1800  # 30 minutes
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_NAME = 'formsite_sessionid'
 
-# CSRF Protection (Enhanced) - ✅ FIXED: Removed non-existent view
+# CSRF Protection (Enhanced)
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = 'Strict'
+CSRF_COOKIE_SAMESITE = 'Strict' if not DEBUG else 'Lax'
 CSRF_COOKIE_NAME = 'formsite_csrftoken'
-# CSRF_FAILURE_VIEW = 'security_monitoring.views.csrf_failure'  # ✅ REMOVED: View doesn't exist
+CSRF_TRUSTED_ORIGINS = [
+    'https://formsite-client.onrender.com',
+    'https://formsite-admin.onrender.com',
+    'https://full-request-backend.onrender.com',
+]
 
-# Cache configuration - ✅ FIXED: Using database cache for compatibility
+# Cache configuration
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
@@ -211,8 +220,6 @@ REST_FRAMEWORK = {
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
-    # ✅ DISABLED: Custom exception handler requires implementation
-    # 'EXCEPTION_HANDLER': 'security_monitoring.utils.custom_exception_handler',
 }
 
 # JWT Settings (Secure)
@@ -231,20 +238,57 @@ SIMPLE_JWT = {
     'REQUIRE_NBF': False,
 }
 
-# CORS settings (Restrictive)
+# CORS settings (Fixed for your deployment)
 CORS_ALLOWED_ORIGINS = []
 if DEBUG:
     CORS_ALLOWED_ORIGINS = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:5173",  # Vite dev server
+        "http://127.0.0.1:5173",
     ]
 else:
+    # Production CORS settings - YOUR SPECIFIC URLS
+    CORS_ALLOWED_ORIGINS = [
+        "https://formsite-client.onrender.com",
+        "https://formsite-admin.onrender.com",
+    ]
+    
+    # Also allow from environment variable if set
     frontend_url = os.environ.get('FRONTEND_URL')
     if frontend_url:
-        CORS_ALLOWED_ORIGINS = [frontend_url]
+        CORS_ALLOWED_ORIGINS.append(frontend_url)
+    
+    # Parse from comma-separated environment variable
+    cors_origins_env = os.environ.get('CORS_ALLOWED_ORIGINS')
+    if cors_origins_env:
+        additional_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+        CORS_ALLOWED_ORIGINS.extend(additional_origins)
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = False
+
+# CORS headers
+CORS_ALLOWED_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
 
 # File upload security
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
@@ -290,11 +334,7 @@ SECURITY_LOG_FAILED_LOGINS = True
 SECURITY_LOG_SUSPICIOUS_ACTIVITY = True
 SECURITY_IP_WHITELIST = os.environ.get('ADMIN_IP_WHITELIST', '').split(',') if os.environ.get('ADMIN_IP_WHITELIST') else []
 
-# Rate limiting - ✅ DISABLED: django-ratelimit disabled for deployment
-# RATELIMIT_ENABLE = True
-# RATELIMIT_USE_CACHE = 'default'
-
-# Audit logging - ✅ FIXED
+# Audit logging
 AUDITLOG_INCLUDE_ALL_MODELS = True
 AUDITLOG_EXCLUDE_TRACKING_MODELS = (
     'sessions.session',
@@ -366,3 +406,29 @@ ADMIN_URL_PREFIX = os.environ.get('ADMIN_URL_PREFIX', 'admin')
 # Additional security headers
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER = True
+
+# Development overrides
+if DEBUG:
+    # Less restrictive settings for development
+    CORS_ALLOW_ALL_ORIGINS = False  # Keep this False even in dev for security
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SECURE_SSL_REDIRECT = False
+    
+    # Add development CORS origins
+    CORS_ALLOWED_ORIGINS.extend([
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ])
+
+# Print configuration summary (only in DEBUG)
+if DEBUG:
+    print("🔧 Django Configuration Summary:")
+    print(f"   DEBUG: {DEBUG}")
+    print(f"   ALLOWED_HOSTS: {ALLOWED_HOSTS}")
+    print(f"   CORS_ALLOWED_ORIGINS: {CORS_ALLOWED_ORIGINS}")
+    print(f"   DATABASE: {'PostgreSQL' if 'DATABASE_URL' in os.environ else 'SQLite'}")
+    print(f"   SECRET_KEY: {'✅ Set' if SECRET_KEY else '❌ Missing'}")
+    print(f"   CRYPTOGRAPHY_KEY: {'✅ Set' if CRYPTOGRAPHY_KEY else '❌ Missing'}")
