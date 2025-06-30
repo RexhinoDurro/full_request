@@ -296,13 +296,15 @@ SECURITY_IP_WHITELIST = os.environ.get('ADMIN_IP_WHITELIST', '').split(',') if o
 RATELIMIT_ENABLE = True
 RATELIMIT_USE_CACHE = 'default'
 
-# Audit logging
-AUDITLOG_INCLUDE_ALL_MODELS = False  # Only specific models
+# Audit logging - FIXED CONFIGURATION
+AUDITLOG_INCLUDE_ALL_MODELS = True  # ✅ FIXED: Must be True to use exclude list
 AUDITLOG_EXCLUDE_TRACKING_MODELS = (
     'sessions.session',
     'admin.logentry',
     'contenttypes.contenttype',
     'auth.permission',
+    'axes.accessattempt',
+    'axes.accesslog',
 )
 
 # Logging configuration
