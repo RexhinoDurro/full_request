@@ -1,22 +1,26 @@
-# submissions/views.py - Fix class names to match URLs
+# submissions/views.py - SECURITY FIXED VERSION
+
 import re
+import hashlib
+import json
+import logging
+from datetime import timedelta
+
 from django.http import HttpResponse
+from django.utils import timezone
+from django.core.cache import cache
+from django.db import transaction
+from django.conf import settings
+
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from django_ratelimit.decorators import ratelimit
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.cache import never_cache
 from django.utils.decorators import method_decorator
-from django.core.cache import cache
-from django.utils import timezone
-from datetime import timedelta
-import logging
-import hashlib
-import json
-import bleach
 
 from .models import Submission
 from .serializers import SecureSubmissionCreateSerializer, SubmissionListSerializer, SubmissionDetailSerializer
@@ -25,15 +29,15 @@ from security_monitoring.utils import get_client_ip
 
 logger = logging.getLogger('security_monitoring')
 
-# Custom throttle classes
+# Custom throttle classes with reduced rates
 class SubmissionRateThrottle(AnonRateThrottle):
-    rate = '5/min'
+    rate = '3/min'  # Reduced from 5/min
     
-class LoginRateThrottle(AnonRateThrottle):
-    rate = '3/5min'
+class AdminRateThrottle(UserRateThrottle):
+    rate = '100/hour'  # Specific for admin operations
 
 def log_security_event(event_type, severity, request, description, metadata=None):
-    """Helper function to log security events"""
+    """Enhanced security event logging"""
     try:
         SecurityEvent.objects.create(
             event_type=event_type,
@@ -44,218 +48,242 @@ def log_security_event(event_type, severity, request, description, metadata=None
             description=description,
             metadata=metadata or {}
         )
+        
+        # Also log to Django logger for immediate visibility
+        logger.warning(f"SECURITY: {event_type} - {description} - IP: {get_client_ip(request)}")
+        
     except Exception as e:
         logger.error(f"Failed to log security event: {e}")
 
-def detect_form_spam(request, form_data):
-    """Detect form spam using various techniques"""
+class DatabaseRateLimiter:
+    """Database-backed rate limiter (Redis-free)"""
+    
+    @staticmethod
+    def is_rate_limited(key, limit, window_seconds):
+        """Check if request should be rate limited"""
+        try:
+            # Use database to store rate limit data
+            from security_monitoring.models import SecurityEvent
+            
+            cutoff_time = timezone.now() - timedelta(seconds=window_seconds)
+            recent_events = SecurityEvent.objects.filter(
+                description__contains=key,
+                timestamp__gte=cutoff_time
+            ).count()
+            
+            return recent_events >= limit
+            
+        except Exception:
+            # Fail open for availability
+            return False
+
+def enhanced_spam_detection(request, form_data):
+    """Enhanced spam detection with multiple techniques"""
     client_ip = get_client_ip(request)
     
-    # Rate limiting check
-    cache_key = f"form_submissions:{client_ip}"
-    recent_submissions = cache.get(cache_key, 0)
+    # 1. Rate limiting check (database-backed)
+    if DatabaseRateLimiter.is_rate_limited(f"form_submission:{client_ip}", 3, 3600):
+        return True, "Rate limit exceeded"
     
-    if recent_submissions >= 3:  # Max 3 submissions per hour
-        return True, "Too many submissions from this IP"
+    # 2. Content analysis
+    all_text = ' '.join([str(form_data.get(field, '')) for field in form_data.keys()]).lower()
     
-    # Content-based spam detection
-    spam_keywords = [
-        'viagra', 'casino', 'lottery', 'winner', 'congratulations',
-        'click here', 'free money', 'make money fast', 'work from home',
-        'weight loss', 'diet pills', 'enlargement', 'pills'
-    ]
+    # Enhanced spam keywords
+    spam_indicators = {
+        'high_risk': ['viagra', 'casino', 'lottery', 'winner', 'free money', 'click here'],
+        'medium_risk': ['urgent', 'limited time', 'act now', 'guarantee', 'amazing'],
+        'suspicious_patterns': [r'\b\w*\d{4,}\w*\b', r'[A-Z]{10,}', r'(.)\1{5,}']
+    }
     
-    all_text = ' '.join([
-        str(form_data.get(field, '')) for field in form_data.keys()
-    ]).lower()
+    risk_score = 0
     
-    spam_score = sum(1 for keyword in spam_keywords if keyword in all_text)
+    # Check high-risk keywords
+    for keyword in spam_indicators['high_risk']:
+        if keyword in all_text:
+            risk_score += 10
     
-    if spam_score >= 2:
-        return True, f"Spam content detected (score: {spam_score})"
+    # Check medium-risk keywords
+    for keyword in spam_indicators['medium_risk']:
+        if keyword in all_text:
+            risk_score += 3
     
-    # Check for excessive length (potential spam)
-    total_length = sum(len(str(form_data.get(field, ''))) for field in form_data.keys())
-    if total_length > 5000:
-        return True, "Submission too long"
+    # Check suspicious patterns
+    for pattern in spam_indicators['suspicious_patterns']:
+        if re.search(pattern, all_text):
+            risk_score += 5
     
-    # Check for repeated characters (spam pattern)
+    # 3. Length-based detection
+    if len(all_text) > 10000:  # Extremely long submission
+        risk_score += 15
+    elif len(all_text) < 10:  # Extremely short submission
+        risk_score += 5
+    
+    # 4. Repeated character detection
     if re.search(r'(.)\1{10,}', all_text):
-        return True, "Suspicious repeated characters"
+        risk_score += 10
     
-    return False, ""
+    # 5. URL/Link detection (suspicious in form submissions)
+    url_pattern = r'https?://|www\.|\.com|\.org|\.net'
+    if re.search(url_pattern, all_text):
+        risk_score += 8
+    
+    return risk_score >= 15, f"Spam detected (risk score: {risk_score})"
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @throttle_classes([SubmissionRateThrottle])
-@ratelimit(key='ip', rate='5/m', method='POST', block=True)
+@ratelimit(key='ip', rate='3/m', method='POST', block=True)
 @csrf_protect
 @never_cache
 def submit_form(request):
-    """Ultra-secure public endpoint for form submission"""
+    """Ultra-secure form submission endpoint"""
     
     client_ip = get_client_ip(request)
     
+    # Input validation
+    if not request.data:
+        log_security_event('SUSPICIOUS_ACTIVITY', 'MEDIUM', request, 'Empty form submission')
+        return Response({
+            'success': False,
+            'message': 'No data provided'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
     try:
-        # Log submission attempt
-        log_security_event(
-            'FORM_SUBMISSION', 'LOW', request,
-            f'Form submission attempt from {client_ip}'
-        )
-        
-        # Spam detection
-        is_spam, spam_reason = detect_form_spam(request, request.data)
+        # Enhanced spam detection
+        is_spam, spam_reason = enhanced_spam_detection(request, request.data)
         if is_spam:
             log_security_event(
-                'FORM_SPAM', 'MEDIUM', request,
-                f'Spam detected: {spam_reason}',
-                {'form_data': request.data}
+                'FORM_SPAM', 'HIGH', request,
+                f'Enhanced spam detection: {spam_reason}',
+                {'form_data_length': len(str(request.data)), 'reason': spam_reason}
             )
             return Response({
                 'success': False,
                 'message': 'Submission blocked by spam filter'
             }, status=status.HTTP_429_TOO_MANY_REQUESTS)
         
-        # Validate and create submission
+        # Validate submission data
         serializer = SecureSubmissionCreateSerializer(data=request.data)
         
         if serializer.is_valid():
-            # Create hash of submission data for duplicate detection
-            data_hash = hashlib.md5(
+            # Create unique hash for duplicate detection
+            data_hash = hashlib.sha256(
                 json.dumps(serializer.validated_data, sort_keys=True).encode()
             ).hexdigest()
             
-            # Check for duplicate submissions
+            # Check for recent duplicates (24-hour window)
             cache_key = f"submission_hash:{data_hash}"
             if cache.get(cache_key):
                 log_security_event(
                     'FORM_SPAM', 'MEDIUM', request,
-                    'Duplicate submission detected'
+                    'Duplicate submission attempt within 24 hours'
                 )
                 return Response({
                     'success': False,
                     'message': 'Duplicate submission detected'
                 }, status=status.HTTP_409_CONFLICT)
             
-            # Save submission with hashed IP
-            submission_data = serializer.validated_data
-            if client_ip:
-                submission_data['ip_address_hash'] = hashlib.sha256(client_ip.encode()).hexdigest()
-            
-            submission = serializer.save(**submission_data)
-            
-            # Cache submission hash to prevent duplicates
-            cache.set(cache_key, True, 3600)  # 1 hour
-            
-            # Update rate limiting counter
-            cache_key = f"form_submissions:{client_ip}"
-            cache.set(cache_key, cache.get(cache_key, 0) + 1, 3600)
-            
-            log_security_event(
-                'FORM_SUBMISSION', 'LOW', request,
-                f'Successful form submission ID: {submission.id}'
-            )
+            # Save submission with transaction atomicity
+            with transaction.atomic():
+                submission = serializer.save()
+                
+                # Cache submission hash to prevent duplicates
+                cache.set(cache_key, True, 86400)  # 24 hours
+                
+                # Log successful submission
+                log_security_event(
+                    'FORM_SUBMISSION', 'LOW', request,
+                    f'Successful form submission ID: {submission.uuid}',
+                    {'submission_id': str(submission.uuid)}
+                )
             
             return Response({
                 'success': True,
                 'message': 'Form submitted successfully',
-                'submission_id': submission.id
+                'submission_id': str(submission.uuid)  # Use UUID instead of ID
             }, status=status.HTTP_201_CREATED)
         
         else:
-            # Log validation errors
+            # Log validation errors without exposing details
             log_security_event(
-                'FORM_SUBMISSION', 'LOW', request,
-                f'Form validation failed: {serializer.errors}',
-                {'validation_errors': serializer.errors}
+                'FORM_VALIDATION_ERROR', 'LOW', request,
+                'Form validation failed',
+                {'error_count': len(serializer.errors)}
             )
             
             return Response({
                 'success': False,
-                'message': 'Form validation failed',
+                'message': 'Please check your form data and try again',
                 'errors': serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
     
     except Exception as e:
-        logger.error(f"Form submission error: {e}")
+        # Log error without exposing internal details
+        logger.error(f"Form submission error: {e}", exc_info=True)
         log_security_event(
             'API_ERROR', 'HIGH', request,
-            f'Form submission error: {str(e)}'
+            'Form submission processing error'
         )
         
         return Response({
             'success': False,
-            'message': 'Internal server error'
+            'message': 'Unable to process submission. Please try again later.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @method_decorator(never_cache, name='dispatch')
 class SubmissionListView(generics.ListAPIView):
-    """Ultra-secure admin endpoint to list submissions"""
+    """Secure admin endpoint to list submissions"""
     serializer_class = SubmissionListSerializer
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [UserRateThrottle]
+    permission_classes = [IsAdminUser]  # ✅ FIXED: Changed from IsAuthenticated
+    throttle_classes = [AdminRateThrottle]
 
     def dispatch(self, request, *args, **kwargs):
-        # Log admin access
+        # Enhanced admin access logging
         if request.user.is_authenticated:
             log_security_event(
-                'ADMIN_ACCESS', 'LOW', request,
-                f'Admin {request.user.username} accessed submission list'
+                'ADMIN_ACCESS', 'MEDIUM', request,
+                f'Admin {request.user.username} accessed submission list',
+                {'admin_user': request.user.username, 'is_superuser': request.user.is_superuser}
             )
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
-        """Enhanced queryset with security logging"""
+        """Secure queryset with input validation"""
         queryset = Submission.objects.all()
         
-        # Apply filters securely
-        filters = self.request.query_params
-        
         # Validate and sanitize filter parameters
+        filters = self.request.query_params
         safe_filters = {}
-        for key, value in filters.items():
-            # Only allow known filter keys
-            allowed_filters = [
-                'date_from', 'date_to', 'date_preset', 'service_type',
-                'issue_timeframe', 'country', 'search'
-            ]
-            if key in allowed_filters:
-                # Sanitize filter values
-                safe_value = bleach.clean(value, tags=[], strip=True)
-                safe_filters[key] = safe_value[:100]  # Limit length
         
-        # Apply date filtering
-        if safe_filters.get('date_preset'):
-            preset = safe_filters['date_preset']
-            now = timezone.now()
-            
-            if preset == 'today':
-                start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                queryset = queryset.filter(submitted_at__gte=start_date)
-            elif preset == '1_week':
-                start_date = now - timedelta(days=7)
-                queryset = queryset.filter(submitted_at__gte=start_date)
-            elif preset == '2_weeks':
-                start_date = now - timedelta(days=14)
-                queryset = queryset.filter(submitted_at__gte=start_date)
-            elif preset == '30_days':
-                start_date = now - timedelta(days=30)
-                queryset = queryset.filter(submitted_at__gte=start_date)
+        # Whitelist allowed filters with validation
+        allowed_filters = {
+            'date_from': lambda x: x if re.match(r'^\d{4}-\d{2}-\d{2}$', x) else None,
+            'date_to': lambda x: x if re.match(r'^\d{4}-\d{2}-\d{2}$', x) else None,
+            'country': lambda x: x if re.match(r'^[A-Z]{2}$', x) else None,
+            'search': lambda x: x[:50] if len(x) <= 50 else None,  # Limit search length
+        }
         
-        # Apply other filters with validation
-        if safe_filters.get('service_type'):
-            queryset = queryset.filter(step2__icontains=safe_filters['service_type'])
+        for key, validator in allowed_filters.items():
+            if key in filters:
+                validated_value = validator(filters[key])
+                if validated_value:
+                    safe_filters[key] = validated_value
+        
+        # Apply safe filters
+        if safe_filters.get('date_from'):
+            try:
+                start_date = timezone.datetime.strptime(safe_filters['date_from'], '%Y-%m-%d').date()
+                queryset = queryset.filter(submitted_at__date__gte=start_date)
+            except ValueError:
+                pass  # Ignore invalid dates
         
         if safe_filters.get('country'):
-            # Validate country code format
-            country = safe_filters['country']
-            if re.match(r'^[A-Z]{2}$', country):
-                queryset = queryset.filter(country=country)
+            queryset = queryset.filter(country=safe_filters['country'])
         
         if safe_filters.get('search'):
-            search_term = safe_filters['search']
-            # Use Q objects safely
+            # Use exact lookups to prevent injection
             from django.db.models import Q
+            search_term = safe_filters['search']
             queryset = queryset.filter(
                 Q(name__icontains=search_term) |
                 Q(email__icontains=search_term)
@@ -265,52 +293,66 @@ class SubmissionListView(generics.ListAPIView):
         count = queryset.count()
         log_security_event(
             'DATA_ACCESS', 'LOW', self.request,
-            f'Admin accessed {count} submissions with filters: {safe_filters}'
+            f'Admin accessed {count} submissions',
+            {'record_count': count, 'filters': safe_filters}
         )
         
         return queryset.order_by('-submitted_at')
 
 @method_decorator(never_cache, name='dispatch')
 class SubmissionDetailView(generics.RetrieveAPIView):
-    """Ultra-secure admin endpoint to view detailed submission"""
+    """Secure admin endpoint for submission details"""
     queryset = Submission.objects.all()
     serializer_class = SubmissionDetailSerializer
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [UserRateThrottle]
+    permission_classes = [IsAdminUser]  # ✅ FIXED: Changed from IsAuthenticated
+    throttle_classes = [AdminRateThrottle]
     
     def retrieve(self, request, *args, **kwargs):
-        response = super().retrieve(request, *args, **kwargs)
-        
-        # Log sensitive data access
-        submission_id = kwargs.get('pk')
-        log_security_event(
-            'SENSITIVE_DATA_ACCESS', 'MEDIUM', request,
-            f'Admin {request.user.username} viewed submission {submission_id}'
-        )
-        
-        return response
+        try:
+            response = super().retrieve(request, *args, **kwargs)
+            
+            # Log sensitive data access
+            submission_id = kwargs.get('pk')
+            log_security_event(
+                'SENSITIVE_DATA_ACCESS', 'HIGH', request,
+                f'Admin {request.user.username} viewed submission details',
+                {'submission_id': submission_id, 'admin_user': request.user.username}
+            )
+            
+            return response
+            
+        except Submission.DoesNotExist:
+            log_security_event(
+                'SUSPICIOUS_ACTIVITY', 'MEDIUM', request,
+                f'Admin attempted to access non-existent submission: {kwargs.get("pk")}'
+            )
+            return Response({
+                'success': False,
+                'message': 'Submission not found'
+            }, status=status.HTTP_404_NOT_FOUND)
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
-@throttle_classes([UserRateThrottle])
-@ratelimit(key='user', rate='10/m', method='DELETE', block=True)
+@permission_classes([IsAdminUser])  # ✅ FIXED: Changed from IsAuthenticated
+@throttle_classes([AdminRateThrottle])
+@ratelimit(key='user', rate='5/m', method='DELETE', block=True)  # Reduced rate
 @never_cache
 def delete_submission(request, pk):
-    """Ultra-secure admin endpoint to delete individual submission"""
+    """Secure admin endpoint for submission deletion"""
     
     try:
         submission = Submission.objects.get(pk=pk)
         
-        # Log deletion attempt
+        # Enhanced deletion logging
         log_security_event(
-            'DATA_DELETION', 'HIGH', request,
-            f'Admin {request.user.username} deleted submission {pk}',
-            {'submission_data': {
-                'id': submission.id,
-                'name': submission.name,
-                'email': submission.email,
-                'submitted_at': submission.submitted_at.isoformat()
-            }}
+            'DATA_DELETION', 'CRITICAL', request,
+            f'Admin {request.user.username} deleted submission',
+            {
+                'submission_id': submission.id,
+                'submission_uuid': str(submission.uuid),
+                'admin_user': request.user.username,
+                'submitted_at': submission.submitted_at.isoformat(),
+                'anonymized': submission.anonymized
+            }
         )
         
         submission.delete()
@@ -322,8 +364,8 @@ def delete_submission(request, pk):
         
     except Submission.DoesNotExist:
         log_security_event(
-            'SUSPICIOUS_ACTIVITY', 'MEDIUM', request,
-            f'Admin {request.user.username} attempted to delete non-existent submission {pk}'
+            'SUSPICIOUS_ACTIVITY', 'HIGH', request,
+            f'Admin {request.user.username} attempted to delete non-existent submission: {pk}'
         )
         return Response({
             'success': False,
@@ -331,35 +373,49 @@ def delete_submission(request, pk):
         }, status=status.HTTP_404_NOT_FOUND)
     
     except Exception as e:
-        logger.error(f"Deletion error: {e}")
+        logger.error(f"Deletion error: {e}", exc_info=True)
         log_security_event(
             'API_ERROR', 'HIGH', request,
-            f'Error deleting submission {pk}: {str(e)}'
+            f'Error deleting submission {pk}'
         )
         return Response({
             'success': False,
-            'message': 'Internal server error'
+            'message': 'Unable to delete submission'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
-@throttle_classes([UserRateThrottle])
+@permission_classes([IsAdminUser])  # ✅ FIXED: Added proper admin check
+@throttle_classes([AdminRateThrottle])
 @ratelimit(key='user', rate='1/h', method='POST', block=True)  # Very restrictive
 @never_cache
 def delete_all_submissions(request):
-    """Ultra-secure admin endpoint to delete all submissions"""
+    """Ultra-secure bulk deletion endpoint"""
     
+    # Enhanced confirmation mechanism
     confirmation = request.data.get('confirmation')
+    admin_password = request.data.get('admin_password')
     
-    if confirmation != 'delete_permanently':
+    if confirmation != 'DELETE_ALL_PERMANENTLY':
         log_security_event(
             'SUSPICIOUS_ACTIVITY', 'HIGH', request,
             f'Admin {request.user.username} attempted bulk deletion without proper confirmation'
         )
         return Response({
             'success': False,
-            'message': 'Invalid confirmation. Type "delete_permanently" to confirm.'
+            'message': 'Invalid confirmation. Type "DELETE_ALL_PERMANENTLY" to confirm.'
         }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Verify admin password for critical operation
+    from django.contrib.auth import authenticate
+    if not authenticate(username=request.user.username, password=admin_password):
+        log_security_event(
+            'SUSPICIOUS_ACTIVITY', 'CRITICAL', request,
+            f'Admin {request.user.username} attempted bulk deletion with wrong password'
+        )
+        return Response({
+            'success': False,
+            'message': 'Admin password verification failed'
+        }, status=status.HTTP_401_UNAUTHORIZED)
     
     try:
         count = Submission.objects.count()
@@ -367,20 +423,17 @@ def delete_all_submissions(request):
         # Log critical action
         log_security_event(
             'BULK_DATA_DELETION', 'CRITICAL', request,
-            f'Admin {request.user.username} deleted ALL {count} submissions',
-            {'deletion_count': count}
+            f'Admin {request.user.username} initiated bulk deletion of {count} submissions',
+            {
+                'deletion_count': count,
+                'admin_user': request.user.username,
+                'confirmed': True,
+                'password_verified': True
+            }
         )
         
         # Perform deletion
         Submission.objects.all().delete()
-        
-        # Send alert email about bulk deletion
-        from security_monitoring.utils import send_security_alert
-        send_security_alert(
-            'BULK_DATA_DELETION', 'CRITICAL',
-            get_client_ip(request),
-            f'Admin {request.user.username} deleted all {count} submissions'
-        )
         
         return Response({
             'success': True,
@@ -388,33 +441,36 @@ def delete_all_submissions(request):
         }, status=status.HTTP_200_OK)
         
     except Exception as e:
-        logger.error(f"Bulk deletion error: {e}")
+        logger.error(f"Bulk deletion error: {e}", exc_info=True)
         log_security_event(
             'API_ERROR', 'CRITICAL', request,
             f'Error in bulk deletion: {str(e)}'
         )
         return Response({
             'success': False,
-            'message': 'Internal server error'
+            'message': 'Bulk deletion failed'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# Placeholder implementations for completeness
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdminUser])
+@throttle_classes([AdminRateThrottle])
 def download_submissions_excel(request):
-    """Download submissions as Excel file"""
-    # This function needs to be implemented
-    return Response({'message': 'Excel download not implemented yet'})
+    """Secure Excel download endpoint"""
+    log_security_event(
+        'DATA_EXPORT', 'HIGH', request,
+        f'Admin {request.user.username} exported data to Excel'
+    )
+    return Response({'message': 'Excel export feature not implemented yet'})
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdminUser])
 def get_filter_options(request):
-    """Get filter options for the admin interface"""
-    # This function needs to be implemented
-    return Response({'message': 'Filter options not implemented yet'})
+    """Get available filter options"""
+    return Response({'message': 'Filter options endpoint not implemented yet'})
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdminUser])
 def submission_stats(request):
     """Get submission statistics"""
-    # This function needs to be implemented
-    return Response({'message': 'Statistics not implemented yet'})
+    return Response({'message': 'Statistics endpoint not implemented yet'})

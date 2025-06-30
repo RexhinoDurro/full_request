@@ -1,19 +1,25 @@
+# authentication/views.py - FIXED VERSION
+
 from django.contrib.auth import authenticate
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
+import logging
+
+logger = logging.getLogger('security_monitoring')
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
-    """Admin login endpoint"""
+    """Secure admin login endpoint"""
     username = request.data.get('username')
     password = request.data.get('password')
     
     if not username or not password:
+        logger.warning(f"Login attempt missing credentials from {request.META.get('REMOTE_ADDR')}")
         return Response({
             'success': False,
             'message': 'Username and password are required'
@@ -21,8 +27,11 @@ def login(request):
     
     user = authenticate(username=username, password=password)
     
-    if user and user.is_staff:  # Only allow staff users to login
+    if user and user.is_staff:
         refresh = RefreshToken.for_user(user)
+        
+        # Log successful login
+        logger.info(f"Successful admin login: {user.username} from {request.META.get('REMOTE_ADDR')}")
         
         return Response({
             'success': True,
@@ -39,26 +48,32 @@ def login(request):
             }
         }, status=status.HTTP_200_OK)
     
+    # Log failed login attempt
+    logger.warning(f"Failed login attempt for username '{username}' from {request.META.get('REMOTE_ADDR')}")
+    
     return Response({
         'success': False,
-        'message': 'Invalid credentials or insufficient permissions'
+        'message': 'Invalid credentials'  # Don't reveal if user exists
     }, status=status.HTTP_401_UNAUTHORIZED)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout(request):
-    """Admin logout endpoint"""
+    """Secure admin logout endpoint"""
     try:
         refresh_token = request.data.get('refresh_token')
         if refresh_token:
             token = RefreshToken(refresh_token)
             token.blacklist()
         
+        logger.info(f"User {request.user.username} logged out from {request.META.get('REMOTE_ADDR')}")
+        
         return Response({
             'success': True,
             'message': 'Logged out successfully'
         }, status=status.HTTP_200_OK)
     except Exception as e:
+        logger.error(f"Logout error for user {request.user.username}: {str(e)}")
         return Response({
             'success': False,
             'message': 'Error during logout'
@@ -81,35 +96,7 @@ def profile(request):
         }
     }, status=status.HTTP_200_OK)
 
-@api_view(['POST'])
-@permission_classes([AllowAny])  # For initial setup only
-def create_admin(request):
-    """Create initial admin user - disable this in production"""
-    
-    # Only allow if no admin users exist
-    if User.objects.filter(is_staff=True).exists():
-        return Response({
-            'success': False,
-            'message': 'Admin user already exists'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    username = request.data.get('username', 'admin')
-    password = request.data.get('password', 'admin123')
-    email = request.data.get('email', 'admin@formsite.com')
-    
-    user = User.objects.create_user(
-        username=username,
-        email=email,
-        password=password,
-        is_staff=True,
-        is_superuser=True
-    )
-    
-    return Response({
-        'success': True,
-        'message': 'Admin user created successfully',
-        'user': {
-            'username': user.username,
-            'email': user.email,
-        }
-    }, status=status.HTTP_201_CREATED)
+# ⚠️ REMOVED: create_admin function - SECURITY RISK
+# This function has been removed for security reasons.
+# Admin users should only be created via Django management commands
+# or through the Django admin interface by existing superusers.
