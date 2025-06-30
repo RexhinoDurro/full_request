@@ -1,9 +1,10 @@
-# authentication/views.py - FIXED VERSION
+# authentication/views.py - FIXED VERSION (CSRF Exempt for APIs)
 
 from django.contrib.auth import authenticate
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
@@ -13,6 +14,7 @@ logger = logging.getLogger('security_monitoring')
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt  # ✅ ADDED: Exempt from CSRF for API endpoints
 def login(request):
     """Secure admin login endpoint"""
     username = request.data.get('username')
@@ -58,6 +60,7 @@ def login(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@csrf_exempt  # ✅ ADDED: Exempt from CSRF for API endpoints
 def logout(request):
     """Secure admin logout endpoint"""
     try:
@@ -81,6 +84,7 @@ def logout(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@csrf_exempt  # ✅ ADDED: Exempt from CSRF for API endpoints
 def profile(request):
     """Get current admin user profile"""
     user = request.user
@@ -95,8 +99,3 @@ def profile(request):
             'date_joined': user.date_joined,
         }
     }, status=status.HTTP_200_OK)
-
-# ⚠️ REMOVED: create_admin function - SECURITY RISK
-# This function has been removed for security reasons.
-# Admin users should only be created via Django management commands
-# or through the Django admin interface by existing superusers.

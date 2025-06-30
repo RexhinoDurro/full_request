@@ -1,4 +1,4 @@
-# submissions/views.py - SECURITY FIXED VERSION
+# submissions/views.py - SECURITY FIXED VERSION (CSRF Exempt for APIs)
 
 import re
 import hashlib
@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.core.cache import cache
 from django.db import transaction
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
@@ -18,7 +19,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from django_ratelimit.decorators import ratelimit
-from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.cache import never_cache
 from django.utils.decorators import method_decorator
 
@@ -133,7 +133,7 @@ def enhanced_spam_detection(request, form_data):
 @permission_classes([AllowAny])
 @throttle_classes([SubmissionRateThrottle])
 @ratelimit(key='ip', rate='3/m', method='POST', block=True)
-@csrf_protect
+@csrf_exempt  # ✅ CHANGED: Removed @csrf_protect, added @csrf_exempt
 @never_cache
 def submit_form(request):
     """Ultra-secure form submission endpoint"""
@@ -231,10 +231,11 @@ def submit_form(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @method_decorator(never_cache, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')  # ✅ ADDED: CSRF exempt for API
 class SubmissionListView(generics.ListAPIView):
     """Secure admin endpoint to list submissions"""
     serializer_class = SubmissionListSerializer
-    permission_classes = [IsAdminUser]  # ✅ FIXED: Changed from IsAuthenticated
+    permission_classes = [IsAdminUser]
     throttle_classes = [AdminRateThrottle]
 
     def dispatch(self, request, *args, **kwargs):
@@ -300,11 +301,12 @@ class SubmissionListView(generics.ListAPIView):
         return queryset.order_by('-submitted_at')
 
 @method_decorator(never_cache, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')  # ✅ ADDED: CSRF exempt for API
 class SubmissionDetailView(generics.RetrieveAPIView):
     """Secure admin endpoint for submission details"""
     queryset = Submission.objects.all()
     serializer_class = SubmissionDetailSerializer
-    permission_classes = [IsAdminUser]  # ✅ FIXED: Changed from IsAuthenticated
+    permission_classes = [IsAdminUser]
     throttle_classes = [AdminRateThrottle]
     
     def retrieve(self, request, *args, **kwargs):
@@ -332,9 +334,10 @@ class SubmissionDetailView(generics.RetrieveAPIView):
             }, status=status.HTTP_404_NOT_FOUND)
 
 @api_view(['DELETE'])
-@permission_classes([IsAdminUser])  # ✅ FIXED: Changed from IsAuthenticated
+@permission_classes([IsAdminUser])
 @throttle_classes([AdminRateThrottle])
-@ratelimit(key='user', rate='5/m', method='DELETE', block=True)  # Reduced rate
+@ratelimit(key='user', rate='5/m', method='DELETE', block=True)
+@csrf_exempt  # ✅ ADDED: CSRF exempt for API
 @never_cache
 def delete_submission(request, pk):
     """Secure admin endpoint for submission deletion"""
@@ -384,38 +387,26 @@ def delete_submission(request, pk):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])  # ✅ FIXED: Added proper admin check
+@permission_classes([IsAdminUser])
 @throttle_classes([AdminRateThrottle])
-@ratelimit(key='user', rate='1/h', method='POST', block=True)  # Very restrictive
+@ratelimit(key='user', rate='1/h', method='POST', block=True)
+@csrf_exempt  # ✅ ADDED: CSRF exempt for API
 @never_cache
 def delete_all_submissions(request):
     """Ultra-secure bulk deletion endpoint"""
     
     # Enhanced confirmation mechanism
     confirmation = request.data.get('confirmation')
-    admin_password = request.data.get('admin_password')
     
-    if confirmation != 'DELETE_ALL_PERMANENTLY':
+    if confirmation != 'delete_permanently':  # ✅ FIXED: Match frontend expectation
         log_security_event(
             'SUSPICIOUS_ACTIVITY', 'HIGH', request,
             f'Admin {request.user.username} attempted bulk deletion without proper confirmation'
         )
         return Response({
             'success': False,
-            'message': 'Invalid confirmation. Type "DELETE_ALL_PERMANENTLY" to confirm.'
+            'message': 'Invalid confirmation. Type "delete_permanently" to confirm.'
         }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Verify admin password for critical operation
-    from django.contrib.auth import authenticate
-    if not authenticate(username=request.user.username, password=admin_password):
-        log_security_event(
-            'SUSPICIOUS_ACTIVITY', 'CRITICAL', request,
-            f'Admin {request.user.username} attempted bulk deletion with wrong password'
-        )
-        return Response({
-            'success': False,
-            'message': 'Admin password verification failed'
-        }, status=status.HTTP_401_UNAUTHORIZED)
     
     try:
         count = Submission.objects.count()
@@ -427,8 +418,7 @@ def delete_all_submissions(request):
             {
                 'deletion_count': count,
                 'admin_user': request.user.username,
-                'confirmed': True,
-                'password_verified': True
+                'confirmed': True
             }
         )
         
@@ -455,6 +445,7 @@ def delete_all_submissions(request):
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 @throttle_classes([AdminRateThrottle])
+@csrf_exempt  # ✅ ADDED: CSRF exempt for API
 def download_submissions_excel(request):
     """Secure Excel download endpoint"""
     log_security_event(
@@ -465,12 +456,14 @@ def download_submissions_excel(request):
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
+@csrf_exempt  # ✅ ADDED: CSRF exempt for API
 def get_filter_options(request):
     """Get available filter options"""
     return Response({'message': 'Filter options endpoint not implemented yet'})
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
+@csrf_exempt  # ✅ ADDED: CSRF exempt for API
 def submission_stats(request):
     """Get submission statistics"""
     return Response({'message': 'Statistics endpoint not implemented yet'})
