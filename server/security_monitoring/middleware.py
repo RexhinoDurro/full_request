@@ -1,4 +1,4 @@
-# security_monitoring/middleware.py - FIXED VERSION
+# security_monitoring/middleware.py - 🔒 ULTRA-SECURE VERSION (with API CSRF fix)
 import logging
 import json
 import re
