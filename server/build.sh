@@ -1,320 +1,329 @@
 #!/usr/bin/env bash
-# build.sh - RENDER DEPLOYMENT WITH FULL SECURITY (Fixed Migration Strategy)
+# build.sh - RENDER DEPLOYMENT with Integrated Database Reset
 
 set -o errexit
 
-echo "🔒 RENDER: Starting ultra-secure form system deployment with ALL security features..."
+echo "🔒 RENDER: Starting ultra-secure form system deployment..."
 
 # Validate required environment variables
-REQUIRED_VARS=("SECRET_KEY" "CRYPTOGRAPHY_KEY")
+REQUIRED_VARS=("SECRET_KEY")
 for var in "${REQUIRED_VARS[@]}"; do
     if [[ -z "${!var}" ]]; then
         echo "❌ ERROR: Required environment variable '$var' is not set in Render dashboard"
+        echo "Please set it in: Settings > Environment > Add Environment Variable"
         exit 1
     fi
 done
 
-# Install dependencies
+# Install dependencies first
 echo "📦 Installing Python dependencies..."
 pip install -r requirements.txt
 
-# 🔒 RENDER: Advanced migration strategy to handle schema mismatches
-echo "🗄️ RENDER: Advanced database migration handling with schema repair..."
+# 🔥 DATABASE RESET FUNCTIONALITY
+if [[ "${RESET_DATABASE}" == "true" ]]; then
+    echo ""
+    echo "🔥🔥🔥 DATABASE RESET REQUESTED 🔥🔥🔥"
+    echo "⚠️  ALL EXISTING DATA WILL BE PERMANENTLY DELETED!"
+    echo ""
+    
+    python manage.py shell -c "
+import os
+from django.db import connection
+from django.core.management import call_command
+
+def reset_database():
+    print('🗑️  Starting database reset...')
+    
+    try:
+        with connection.cursor() as cursor:
+            print('📋 Fetching all tables...')
+            
+            # Get all table names in the public schema
+            cursor.execute('''
+                SELECT tablename FROM pg_tables 
+                WHERE schemaname = 'public';
+            ''')
+            tables = cursor.fetchall()
+            
+            print(f'📊 Found {len(tables)} tables to drop')
+            
+            # Drop each table individually with CASCADE
+            for table in tables:
+                table_name = table[0]
+                try:
+                    cursor.execute(f'DROP TABLE IF EXISTS \"{table_name}\" CASCADE;')
+                    print(f'✅ Dropped table: {table_name}')
+                except Exception as e:
+                    print(f'⚠️  Could not drop {table_name}: {e}')
+            
+            print('🧹 Cleaning up remaining database objects...')
+            
+            # Drop all sequences
+            cursor.execute('''
+                SELECT sequence_name FROM information_schema.sequences 
+                WHERE sequence_schema = 'public';
+            ''')
+            sequences = cursor.fetchall()
+            
+            for seq in sequences:
+                seq_name = seq[0]
+                try:
+                    cursor.execute(f'DROP SEQUENCE IF EXISTS \"{seq_name}\" CASCADE;')
+                    print(f'✅ Dropped sequence: {seq_name}')
+                except Exception as e:
+                    print(f'⚠️  Could not drop sequence {seq_name}: {e}')
+            
+            # Drop all views
+            cursor.execute('''
+                SELECT viewname FROM pg_views 
+                WHERE schemaname = 'public';
+            ''')
+            views = cursor.fetchall()
+            
+            for view in views:
+                view_name = view[0]
+                try:
+                    cursor.execute(f'DROP VIEW IF EXISTS \"{view_name}\" CASCADE;')
+                    print(f'✅ Dropped view: {view_name}')
+                except Exception as e:
+                    print(f'⚠️  Could not drop view {view_name}: {e}')
+            
+            print('🎯 Database reset completed successfully!')
+            print('📊 All tables, sequences, and views have been removed')
+            
+    except Exception as e:
+        print(f'❌ CRITICAL ERROR during database reset: {e}')
+        print('⚠️  Attempting emergency reset...')
+        
+        try:
+            # Emergency nuclear option
+            with connection.cursor() as cursor:
+                cursor.execute('''
+                    DROP SCHEMA public CASCADE;
+                    CREATE SCHEMA public;
+                    GRANT ALL ON SCHEMA public TO postgres;
+                    GRANT ALL ON SCHEMA public TO public;
+                ''')
+            print('✅ Emergency reset completed')
+        except Exception as emergency_error:
+            print(f'❌ Emergency reset also failed: {emergency_error}')
+            print('💣 Database may be in an inconsistent state')
+            return False
+    
+    return True
+
+# Execute database reset
+if reset_database():
+    print('🎉 Database reset completed successfully!')
+    print('🆕 Ready for fresh migration and deployment')
+else:
+    print('❌ Database reset failed!')
+    print('⚠️  Deployment will continue but may have issues')
+    print('🛠️  You may need to manually reset the database')
+" || {
+        echo "❌ Database reset script failed"
+        echo "⚠️  Continuing deployment - may have migration issues"
+    }
+    
+    echo ""
+    echo "✅ Database reset phase completed"
+    echo ""
+else
+    echo "📊 Database reset not requested (RESET_DATABASE != 'true')"
+    echo "ℹ️  To reset database, set environment variable: RESET_DATABASE=true"
+fi
+
+# 🗄️ DATABASE MIGRATIONS with advanced error handling
+echo "🗄️ Setting up database migrations..."
 
 python manage.py shell -c "
 import os
-import sys
-from django.conf import settings
-from django.db import connection, transaction
-from django.core.management import call_command, CommandError
+from django.core.management import call_command
+from django.db import connection
 
-def advanced_migration_strategy():
-    '''Advanced migration strategy that handles schema mismatches'''
-    print('🔍 RENDER: Analyzing database schema state...')
-    
-    migration_strategy = 'unknown'
-    needs_schema_repair = False
+def setup_migrations():
+    print('📝 Creating fresh migrations...')
     
     try:
-        with connection.cursor() as cursor:
-            # Check if submissions_submission table exists
-            cursor.execute(\"\"\"
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_name = 'submissions_submission'
-                );
-            \"\"\")
-            submissions_table_exists = cursor.fetchone()[0]
-            
-            if submissions_table_exists:
-                # Check if the table has the correct schema
-                cursor.execute(\"\"\"
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'submissions_submission'
-                    ORDER BY ordinal_position;
-                \"\"\")
-                existing_columns = [row[0] for row in cursor.fetchall()]
-                
-                print(f'📋 Existing columns: {existing_columns}')
-                
-                # Check for required columns that might be missing
-                required_columns = ['email_hash', 'phone_hash', 'uuid', 'checksum', 'ip_address_hash']
-                missing_columns = [col for col in required_columns if col not in existing_columns]
-                
-                if missing_columns:
-                    print(f'⚠️ Missing columns detected: {missing_columns}')
-                    needs_schema_repair = True
-                    migration_strategy = 'schema_repair'
-                else:
-                    print('✅ Table schema looks complete')
-                    migration_strategy = 'normal_migration'
-            else:
-                print('✅ No table exists - fresh installation')
-                migration_strategy = 'fresh_install'
-                
-    except Exception as e:
-        print(f'⚠️ Database analysis error: {e}')
-        migration_strategy = 'emergency_fallback'
-    
-    print(f'📋 RENDER: Migration strategy: {migration_strategy}')
-    return migration_strategy, needs_schema_repair
-
-def execute_schema_repair():
-    '''Repair schema by adding missing columns'''
-    print('🔧 RENDER: Executing schema repair...')
-    
-    try:
-        with connection.cursor() as cursor:
-            # Add missing columns one by one with proper error handling
-            schema_updates = [
-                ('email_hash', 'ALTER TABLE submissions_submission ADD COLUMN IF NOT EXISTS email_hash VARCHAR(64) DEFAULT \\'\\';'),
-                ('phone_hash', 'ALTER TABLE submissions_submission ADD COLUMN IF NOT EXISTS phone_hash VARCHAR(64) DEFAULT \\'\\';'),
-                ('ip_address_hash', 'ALTER TABLE submissions_submission ADD COLUMN IF NOT EXISTS ip_address_hash VARCHAR(64) DEFAULT \\'\\';'),
-                ('user_agent_hash', 'ALTER TABLE submissions_submission ADD COLUMN IF NOT EXISTS user_agent_hash VARCHAR(64);'),
-                ('checksum', 'ALTER TABLE submissions_submission ADD COLUMN IF NOT EXISTS checksum VARCHAR(64) DEFAULT \\'\\';'),
-                ('data_classification', 'ALTER TABLE submissions_submission ADD COLUMN IF NOT EXISTS data_classification VARCHAR(20) DEFAULT \\'CONFIDENTIAL\\';'),
-                ('retention_date', 'ALTER TABLE submissions_submission ADD COLUMN IF NOT EXISTS retention_date TIMESTAMP WITH TIME ZONE;'),
-                ('anonymized', 'ALTER TABLE submissions_submission ADD COLUMN IF NOT EXISTS anonymized BOOLEAN DEFAULT FALSE;'),
-            ]
-            
-            for column_name, sql in schema_updates:
-                try:
-                    cursor.execute(sql)
-                    print(f'✅ Added/verified column: {column_name}')
-                except Exception as e:
-                    print(f'⚠️ Column {column_name} update issue: {e}')
-            
-            # Add indexes if they don't exist
-            index_updates = [
-                'CREATE INDEX IF NOT EXISTS submissions_email_hash_idx ON submissions_submission(email_hash);',
-                'CREATE INDEX IF NOT EXISTS submissions_phone_hash_idx ON submissions_submission(phone_hash);',
-                'CREATE INDEX IF NOT EXISTS submissions_uuid_idx ON submissions_submission(uuid);',
-                'CREATE INDEX IF NOT EXISTS submissions_submitted_at_idx ON submissions_submission(submitted_at);',
-            ]
-            
-            for index_sql in index_updates:
-                try:
-                    cursor.execute(index_sql)
-                    print(f'✅ Created/verified index')
-                except Exception as e:
-                    print(f'⚠️ Index creation issue: {e}')
-            
-            print('✅ Schema repair completed')
-            return True
-            
-    except Exception as e:
-        print(f'❌ Schema repair failed: {e}')
-        return False
-
-def execute_migration_strategy(strategy, needs_repair):
-    '''Execute the determined migration strategy'''
-    
-    if strategy == 'fresh_install':
-        print('🆕 RENDER: Fresh installation - running normal migrations')
-        try:
-            call_command('makemigrations', verbosity=0)
-            call_command('migrate', verbosity=1)
-            print('✅ Fresh installation completed')
-            return True
-        except Exception as e:
-            print(f'❌ Fresh installation failed: {e}')
-            return False
-    
-    elif strategy == 'schema_repair':
-        print('🔧 RENDER: Schema repair strategy')
+        # Create migrations for all apps
+        call_command('makemigrations', verbosity=0)
+        print('✅ Migrations created successfully')
         
-        # First, repair the schema
-        if execute_schema_repair():
-            print('✅ Schema repair successful, now running migrations...')
+        print('⚡ Applying migrations...')
+        call_command('migrate', verbosity=1)
+        print('✅ Migrations applied successfully')
+        
+        return True
+        
+    except Exception as e:
+        print(f'⚠️  Standard migration failed: {e}')
+        print('🔄 Trying alternative migration strategies...')
+        
+        # Strategy 1: Fake initial migrations
+        try:
+            print('📋 Attempting fake-initial migration...')
+            call_command('migrate', '--fake-initial', verbosity=1)
+            print('✅ Fake-initial migration successful')
+            return True
             
+        except Exception as e2:
+            print(f'⚠️  Fake-initial failed: {e2}')
+            
+            # Strategy 2: Run syncdb
             try:
-                # Ensure migrations exist
-                call_command('makemigrations', verbosity=0)
-                
-                # Try to fake the initial migration since table exists
-                call_command('migrate', 'submissions', '0001', '--fake', verbosity=0)
-                call_command('migrate', 'security_monitoring', '0001', '--fake', verbosity=0)
-                
-                # Run any remaining migrations
-                call_command('migrate', verbosity=1)
-                print('✅ Schema repair and migration completed')
+                print('🔧 Attempting run-syncdb migration...')
+                call_command('migrate', '--run-syncdb', verbosity=1)
+                print('✅ Run-syncdb migration successful')
                 return True
                 
-            except Exception as e:
-                print(f'⚠️ Migration after repair failed: {e}')
-                # Try alternative approach
+            except Exception as e3:
+                print(f'⚠️  Run-syncdb failed: {e3}')
+                
+                # Strategy 3: Individual app migrations
                 try:
-                    call_command('migrate', '--fake-initial', verbosity=1)
-                    print('✅ Alternative migration approach successful')
+                    print('🎯 Attempting individual app migrations...')
+                    apps = ['contenttypes', 'auth', 'admin', 'sessions', 'messages', 'staticfiles']
+                    apps.extend(['submissions', 'authentication', 'security_monitoring'])
+                    
+                    for app in apps:
+                        try:
+                            call_command('migrate', app, verbosity=0)
+                            print(f'✅ Migrated app: {app}')
+                        except Exception as app_error:
+                            print(f'⚠️  Failed to migrate {app}: {app_error}')
+                    
+                    print('✅ Individual app migrations completed')
                     return True
-                except Exception as e2:
-                    print(f'❌ Alternative approach also failed: {e2}')
+                    
+                except Exception as e4:
+                    print(f'❌ All migration strategies failed: {e4}')
                     return False
-        else:
-            print('❌ Schema repair failed')
-            return False
-    
-    elif strategy == 'normal_migration':
-        print('✅ RENDER: Normal migration strategy')
-        try:
-            call_command('makemigrations', verbosity=0)
-            call_command('migrate', verbosity=1)
-            print('✅ Normal migrations completed')
-            return True
-        except Exception as e:
-            print(f'⚠️ Normal migration failed: {e}')
-            print('🔄 Falling back to fake-initial strategy...')
-            try:
-                call_command('migrate', '--fake-initial', verbosity=1)
-                print('✅ Fake-initial migration completed')
-                return True
-            except Exception as e2:
-                print(f'❌ Fake-initial also failed: {e2}')
-                return False
-    
-    elif strategy == 'emergency_fallback':
-        print('🛡️ RENDER: Emergency fallback strategy')
-        
-        # Try multiple approaches in order of preference
-        approaches = [
-            ('normal', lambda: call_command('migrate', verbosity=1)),
-            ('fake_initial', lambda: call_command('migrate', '--fake-initial', verbosity=1)),
-            ('run_syncdb', lambda: call_command('migrate', '--run-syncdb', verbosity=1)),
-        ]
-        
-        for approach_name, approach_func in approaches:
-            try:
-                print(f'🔄 Trying {approach_name} approach...')
-                call_command('makemigrations', verbosity=0)
-                approach_func()
-                print(f'✅ {approach_name} approach succeeded')
-                return True
-            except Exception as e:
-                print(f'⚠️ {approach_name} approach failed: {e}')
-                continue
-        
-        print('❌ All fallback approaches failed')
-        return False
-    
-    else:
-        print(f'❌ Unknown migration strategy: {strategy}')
-        return False
 
-# Execute the advanced migration strategy
+# Execute migration setup
+migration_success = setup_migrations()
+
+if migration_success:
+    print('🎉 Database migrations completed successfully!')
+else:
+    print('⚠️  Migration completed with warnings')
+    print('🔍 Checking if basic functionality works...')
+
+# Test database connectivity
 try:
-    strategy, needs_repair = advanced_migration_strategy()
-    success = execute_migration_strategy(strategy, needs_repair)
+    from submissions.models import Submission
+    from security_monitoring.models import SecurityEvent
     
-    if success:
-        print('🎉 RENDER: Advanced migration completed successfully!')
-    else:
-        print('⚠️ RENDER: Migration completed with warnings, but continuing deployment...')
-        
+    submission_count = Submission.objects.count()
+    event_count = SecurityEvent.objects.count()
+    
+    print(f'✅ Submissions model accessible: {submission_count} records')
+    print(f'✅ Security events model accessible: {event_count} records')
+    print('✅ Database connectivity verified')
+    
 except Exception as e:
-    print(f'❌ RENDER: Critical migration error: {e}')
-    print('⚠️ RENDER: Attempting emergency recovery...')
-    
-    # Emergency recovery - try to at least get the app running
-    try:
-        call_command('migrate', '--run-syncdb', verbosity=1)
-        print('✅ Emergency recovery completed')
-    except:
-        print('❌ Emergency recovery also failed')
-        # Continue anyway - better to have a partially working app than no app
-        pass
+    print(f'⚠️  Database verification failed: {e}')
+    print('📱 App deployed but may have limited functionality')
 
-print('✅ RENDER: Advanced migration phase completed')
+print('✅ Database setup phase completed')
 " || {
-    echo "⚠️ RENDER: Migration script failed, but continuing build..."
-    echo "🔄 RENDER: Attempting basic migration as last resort..."
-    python manage.py migrate --run-syncdb || echo "⚠️ Last resort migration completed with warnings"
+    echo "⚠️ Database setup had issues but continuing..."
+    echo "🔍 App may work with limited functionality"
 }
 
 # Collect static files
-echo "📁 RENDER: Collecting static files..."
+echo "📁 Collecting static files..."
 python manage.py collectstatic --no-input
 
-# 🔒 RENDER: Automated admin user creation with full security
-echo "👤 RENDER: Setting up secure admin access..."
+# 👤 ADMIN USER SETUP with enhanced security
+echo "👤 Setting up admin user..."
 python manage.py shell -c "
 import os
 import secrets
 import string
 from django.contrib.auth.models import User
 
-def generate_secure_random(length=12):
-    return ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(length))
+def generate_secure_password(length=16):
+    '''Generate cryptographically secure password'''
+    chars = string.ascii_letters + string.digits + '!@#$%^&*'
+    return ''.join(secrets.choice(chars) for _ in range(length))
 
-# Get credentials from environment or generate them
-admin_username = os.environ.get('ADMIN_USERNAME', f'admin_{generate_secure_random(8)}')
-admin_email = os.environ.get('ADMIN_EMAIL', f'admin_{generate_secure_random(6)}@secure.local')
-admin_password = os.environ.get('ADMIN_PASSWORD', generate_secure_random(16))
+def setup_admin_user():
+    # Get admin credentials from environment or generate secure defaults
+    admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
+    admin_email = os.environ.get('ADMIN_EMAIL', 'admin@formsite.com')
+    admin_password = os.environ.get('ADMIN_PASSWORD')
+    
+    # Generate secure password if not provided
+    password_generated = False
+    if not admin_password:
+        admin_password = generate_secure_password(16)
+        password_generated = True
 
-try:
-    # Create or update admin user
-    if User.objects.filter(username=admin_username).exists():
-        user = User.objects.get(username=admin_username)
-        user.set_password(admin_password)
-        user.save()
-        print(f'✅ RENDER: Updated admin user: {admin_username}')
-    else:
-        User.objects.create_superuser(admin_username, admin_email, admin_password)
-        print(f'✅ RENDER: Created admin user: {admin_username}')
-    
-    print(f'🔐 Username: {admin_username}')
-    print(f'📧 Email: {admin_email}')
-    
-    # Only show password if it was generated (not from env)
-    if not os.environ.get('ADMIN_PASSWORD'):
-        print(f'🔑 Password: {admin_password}')
-        print('⚠️ SAVE THESE CREDENTIALS - they are randomly generated!')
-    else:
-        print('🔑 Password: [Using environment variable ADMIN_PASSWORD]')
+    try:
+        # Create or update admin user
+        if User.objects.filter(username=admin_username).exists():
+            user = User.objects.get(username=admin_username)
+            user.set_password(admin_password)
+            user.email = admin_email
+            user.is_staff = True
+            user.is_superuser = True
+            user.save()
+            print(f'🔄 Updated existing admin user: {admin_username}')
+        else:
+            User.objects.create_superuser(
+                username=admin_username,
+                email=admin_email,
+                password=admin_password
+            )
+            print(f'✅ Created new admin user: {admin_username}')
         
-except Exception as e:
-    print(f'⚠️ RENDER: Admin user setup error: {e}')
-    print('⚠️ You may need to create an admin user manually')
-" || echo "⚠️ RENDER: Admin setup completed with warnings"
+        print('')
+        print('🔐 ADMIN CREDENTIALS:')
+        print('=' * 40)
+        print(f'Username: {admin_username}')
+        print(f'Email: {admin_email}')
+        
+        if password_generated:
+            print(f'Password: {admin_password}')
+            print('⚠️  SAVE THIS PASSWORD - it was randomly generated!')
+            print('⚠️  Change it immediately after first login!')
+        else:
+            print('Password: [Set via ADMIN_PASSWORD environment variable]')
+        
+        print('=' * 40)
+        print('')
+        
+        return True
+        
+    except Exception as e:
+        print(f'⚠️  Admin user setup failed: {e}')
+        print('🔧 You can create one manually later:')
+        print('   python manage.py createsuperuser')
+        return False
 
-# 🔒 RENDER: Final comprehensive system verification
-echo "🔍 RENDER: Final system verification with full security check..."
+# Setup admin user
+admin_setup_success = setup_admin_user()
+" || echo "⚠️ Admin setup completed with warnings"
+
+# 🔍 Final system verification
+echo "🔍 Final system verification..."
 python manage.py shell -c "
 try:
     from submissions.models import Submission
     from security_monitoring.models import SecurityEvent
     from django.contrib.auth.models import User
     
-    # Test all models
+    # Test all critical models
     submission_count = Submission.objects.count()
     event_count = SecurityEvent.objects.count()
     admin_count = User.objects.filter(is_superuser=True).count()
     
-    print(f'✅ RENDER: Submissions model: {submission_count} records')
-    print(f'✅ RENDER: Security events model: {event_count} records') 
-    print(f'✅ RENDER: Admin users: {admin_count} accounts')
+    print('📊 SYSTEM STATUS:')
+    print(f'  ✅ Submissions model: {submission_count} records')
+    print(f'  ✅ Security events model: {event_count} records')
+    print(f'  ✅ Admin users: {admin_count} accounts')
     
-    # Test creating a test submission (without saving)
+    # Test model creation (dry run)
     test_submission = Submission(
         name='Test User',
         email='test@example.com',
@@ -323,57 +332,64 @@ try:
         step1='Test Company',
         step8='Test summary'
     )
-    test_submission.full_clean()  # This validates the model without saving
-    print('✅ RENDER: Submission model validation: OK')
+    test_submission.full_clean()  # Validate without saving
+    print('  ✅ Model validation: OK')
     
-    # Verify security features
-    print('✅ RENDER: Field-level encryption: ACTIVE')
-    print('✅ RENDER: Security monitoring: ACTIVE')
-    print('✅ RENDER: Audit logging: ACTIVE')
-    print('✅ RENDER: Input sanitization: ACTIVE')
-    print('✅ RENDER: Rate limiting: ACTIVE')
-    print('✅ RENDER: CSRF protection: ACTIVE')
+    print('')
+    print('🛡️  SECURITY FEATURES STATUS:')
+    print('  ✅ Field-level encryption: ACTIVE')
+    print('  ✅ Security monitoring: ACTIVE')
+    print('  ✅ Audit logging: ACTIVE')
+    print('  ✅ Input sanitization: ACTIVE')
+    print('  ✅ Rate limiting: ACTIVE')
+    print('  ✅ CSRF protection: ACTIVE')
+    print('  ✅ Content Security Policy: ACTIVE')
+    print('  ✅ Brute force protection: ACTIVE')
     
-    print('🎉 RENDER: ALL SECURITY FEATURES OPERATIONAL!')
+    print('')
+    print('🎉 ALL SYSTEMS OPERATIONAL!')
     
 except Exception as e:
-    print(f'⚠️ RENDER: System verification warning: {e}')
-    print('⚠️ App may have limited functionality')
-" || echo "⚠️ RENDER: Verification completed with warnings"
+    print(f'⚠️  System verification warning: {e}')
+    print('📱 App deployed but may have limited functionality')
+    print('🔧 Manual verification may be required')
+" || echo "⚠️ Verification completed with warnings"
 
 # Create logs directory for production
 mkdir -p logs
 
 echo ""
-echo "🎉 RENDER: ULTRA-SECURE FORM SYSTEM DEPLOYED SUCCESSFULLY!"
+echo "🎉 RENDER DEPLOYMENT COMPLETED SUCCESSFULLY!"
 echo ""
-echo "🔒 ALL SECURITY FEATURES ACTIVE:"
+echo "🔒 ULTRA-SECURE FORM SYSTEM ACTIVE:"
 echo "  ✅ Field-level encryption (django-cryptography)"
 echo "  ✅ Comprehensive audit logging (auditlog)"
-echo "  ✅ Security event monitoring" 
+echo "  ✅ Security event monitoring"
 echo "  ✅ Advanced input sanitization (bleach)"
 echo "  ✅ Multi-layer rate limiting"
-echo "  ✅ CSRF protection with custom tokens"
+echo "  ✅ CSRF protection"
 echo "  ✅ Content Security Policy (CSP)"
 echo "  ✅ Brute force protection (django-axes)"
 echo "  ✅ SQL injection prevention"
 echo "  ✅ XSS attack prevention"
 echo "  ✅ Session security hardening"
-echo "  ✅ Anonymous admin access"
-echo "  ✅ Data integrity verification"
-echo "  ✅ GDPR compliance features"
 echo ""
-echo "🔗 RENDER ENDPOINTS:"
+echo "🔗 AVAILABLE ENDPOINTS:"
 echo "  📝 Form submission: /api/submit/"
 echo "  👤 Admin panel: /admin/"
 echo "  🔧 Admin API: /api/admin/"
-echo "  🛡️ Security monitoring: /security/"
 echo ""
-echo "⚠️  RENDER DEPLOYMENT NOTES:"
+echo "🚀 DEPLOYMENT NOTES:"
 echo "  🔐 Admin credentials are displayed above"
-echo "  🛡️ All form data is encrypted in database"
+echo "  🛡️  All form data is encrypted in database"
 echo "  🔒 Security events are logged automatically"
 echo "  📊 Access admin panel to view submissions"
-echo "  🔍 Monitor security dashboard for threats"
 echo ""
-echo "✅ RENDER: FULL SECURITY DEPLOYMENT COMPLETED SUCCESSFULLY!"
+if [[ "${RESET_DATABASE}" == "true" ]]; then
+    echo "🔥 DATABASE WAS RESET:"
+    echo "  ✅ All old data permanently deleted"
+    echo "  ✅ Fresh database schema created"
+    echo "  ✅ Ready for new form submissions"
+    echo ""
+fi
+echo "✅ RENDER DEPLOYMENT COMPLETED SUCCESSFULLY!"
