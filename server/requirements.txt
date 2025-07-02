@@ -1,4 +1,4 @@
-# 🔒 ULTRA-SECURE: Complete security-focused requirements.txt
+# 🔒 ULTRA-SECURE FORM SYSTEM: Minimal dependencies, maximum security
 
 # Core Django and API
 Django==4.2.13
@@ -11,46 +11,29 @@ dj-database-url==2.1.0
 gunicorn==21.2.0
 whitenoise==6.6.0
 
-# 🔒 SECURITY: Comprehensive security packages
+# 🔒 CORE SECURITY: Essential security only
 django-cors-headers==4.3.1
-django-ratelimit==4.1.0
-django-axes==6.1.1
-django-csp==3.7
-django-cryptography==1.1
-django-auditlog==2.3.0
-bleach==6.1.0
-cryptography==42.0.8
+django-axes==6.1.1              # ✅ Brute force protection
+django-csp==3.7                 # ✅ Content Security Policy
+django-cryptography==1.1        # ✅ Field-level encryption
+django-auditlog==2.3.0          # ✅ Audit logging
+bleach==6.1.0                   # ✅ Input sanitization
+cryptography==42.0.8            # ✅ Encryption
 
-# 🔒 SECURITY: Input validation and sanitization
+# 🔒 INPUT VALIDATION: Secure form handling
 html5lib==1.1
 defusedxml==0.7.1
-python-decouple==3.8
+validators==0.22.0
 
-# 🔒 MONITORING: Security monitoring and logging
-django-extensions==3.2.3
-django-health-check==3.17.0
-
-# File handling (secure)
-openpyxl==3.1.2
-Pillow==10.4.0
-
-# Environment and configuration
+# Environment
 python-dotenv==1.0.0
 
-# 🔒 SECURITY: Additional security tools (for development and monitoring)
-bandit==1.7.5
-safety==2.3.5
-
-# Additional validation
-validators==0.22.0
-phonenumbers==8.13.26
-
-# 🔒 SECURITY: Anti-spam and bot protection
-django-honeypot==1.1.0
-
-# HTTPS and SSL
+# SSL/Security
 certifi==2023.7.22
 
-# 🔒 NOTE: This is a complete security-focused requirements.txt
-# All packages are vetted for security and actively maintained
-# Each package serves a specific security purpose in the application
+# 🔒 EXCEL EXPORT: For admin data export only
+openpyxl==3.1.2
+
+# 🔒 NOTE: Ultra-minimal secure form system
+# No file uploads, no email, no external APIs
+# Just secure form submission and admin access
