@@ -1,8 +1,8 @@
-# submissions/models.py - FULL SECURITY VERSION with auditlog restored
+# submissions/models.py - FULL SECURITY VERSION with ALL features intact
 from django.db import models
 from django.utils import timezone
 from django_cryptography.fields import encrypt
-from auditlog.registry import auditlog  # ✅ RESTORED: Full audit logging
+from auditlog.registry import auditlog  # ✅ FULL audit logging
 import hashlib
 import uuid
 
@@ -10,7 +10,7 @@ class Submission(models.Model):
     """🔒 ULTRA-SECURE: Advanced submission model with field-level encryption and comprehensive security features"""
     
     # 🔒 SECURITY: Unique identifier that's not sequential (prevents enumeration attacks)
-    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
     
     # 🔒 ENCRYPTION: All PII fields are encrypted at the database level
     step1 = encrypt(models.TextField(blank=True, null=True, help_text="Company name"))
@@ -62,6 +62,7 @@ class Submission(models.Model):
             models.Index(fields=['submitted_at', 'country']),
             models.Index(fields=['email_hash']),
             models.Index(fields=['anonymized', 'retention_date']),
+            models.Index(fields=['uuid']),
         ]
     
     def save(self, *args, **kwargs):
@@ -109,7 +110,7 @@ class Submission(models.Model):
             return f"Anonymized Submission {self.uuid} ({self.submitted_at.strftime('%Y-%m-%d')})"
         return f"{self.name} - {self.country} ({self.submitted_at.strftime('%Y-%m-%d %H:%M')})"
 
-# ✅ RESTORED: Register for comprehensive audit logging
+# ✅ FULL SECURITY: Register for comprehensive audit logging
 auditlog.register(Submission)
 
 class DataRetentionLog(models.Model):
@@ -157,6 +158,50 @@ class SecurityIncident(models.Model):
     class Meta:
         ordering = ['-discovered_at']
 
-# ✅ RESTORED: Register all models for audit logging
+class EncryptionKeyRotationLog(models.Model):
+    """🔒 SECURITY: Track encryption key rotation for compliance"""
+    rotation_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    old_key_fingerprint = models.CharField(max_length=64)
+    new_key_fingerprint = models.CharField(max_length=64)
+    rotated_at = models.DateTimeField(auto_now_add=True)
+    rotated_by = models.ForeignKey('auth.User', on_delete=models.PROTECT)
+    affected_records_count = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, choices=[
+        ('INITIATED', 'Initiated'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed'),
+        ('ROLLED_BACK', 'Rolled Back'),
+    ], default='INITIATED')
+    
+    class Meta:
+        ordering = ['-rotated_at']
+
+class ComplianceReport(models.Model):
+    """🔒 COMPLIANCE: Generate and track compliance reports (GDPR, CCPA, etc.)"""
+    report_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    report_type = models.CharField(max_length=20, choices=[
+        ('GDPR_AUDIT', 'GDPR Audit'),
+        ('CCPA_AUDIT', 'CCPA Audit'),
+        ('SECURITY_REVIEW', 'Security Review'),
+        ('DATA_INVENTORY', 'Data Inventory'),
+        ('RETENTION_REVIEW', 'Retention Review'),
+    ])
+    generated_at = models.DateTimeField(auto_now_add=True)
+    generated_by = models.ForeignKey('auth.User', on_delete=models.PROTECT)
+    period_start = models.DateTimeField()
+    period_end = models.DateTimeField()
+    total_submissions = models.IntegerField(default=0)
+    anonymized_count = models.IntegerField(default=0)
+    deleted_count = models.IntegerField(default=0)
+    security_incidents = models.IntegerField(default=0)
+    report_data = models.JSONField(default=dict)
+    
+    class Meta:
+        ordering = ['-generated_at']
+
+# ✅ FULL SECURITY: Register all models for audit logging
 auditlog.register(DataRetentionLog)
 auditlog.register(SecurityIncident)
+auditlog.register(EncryptionKeyRotationLog)
+auditlog.register(ComplianceReport)
