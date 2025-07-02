@@ -1,57 +1,39 @@
-# 🔒 ULTRA-SECURE FORM SYSTEM: Python 3.11.9 Compatible
-# Minimal dependencies for maximum security and compatibility
+# 🔒 ULTRA-SECURE FORM SYSTEM: Minimal dependencies, maximum security
 
-# Core Django and API (Production-tested versions)
+# Core Django and API
 Django==4.2.13
 djangorestframework==3.14.0
 djangorestframework-simplejwt==5.3.0
 
 # Database and deployment
-psycopg[binary]==3.1.18
+psycopg[binary]==3.2.9
 dj-database-url==2.1.0
 gunicorn==21.2.0
 whitenoise==6.6.0
 
-# 🔒 CORE SECURITY STACK: Essential security only
+# 🔒 CORE SECURITY: Essential security only
 django-cors-headers==4.3.1
 django-axes==6.1.1              # ✅ Brute force protection
 django-csp==3.7                 # ✅ Content Security Policy
 django-cryptography==1.1        # ✅ Field-level encryption
 django-auditlog==2.3.0          # ✅ Audit logging
 bleach==6.1.0                   # ✅ Input sanitization
-cryptography==41.0.8            # ✅ Encryption (Python 3.11.9 compatible)
+cryptography==42.0.8            # ✅ Encryption
 
-# 🔒 INPUT VALIDATION & SANITIZATION: Secure form handling
+# 🔒 INPUT VALIDATION: Secure form handling
 html5lib==1.1
 defusedxml==0.7.1
 validators==0.22.0
 
-# Environment and configuration
+# Environment
 python-dotenv==1.0.0
 
-# 🔒 EXCEL EXPORT: For admin data export
+# SSL/Security
+certifi==2023.7.22
+
+# 🔒 EXCEL EXPORT: For admin data export only
 openpyxl==3.1.2
 
-# 🔒 SSL/Security
-certifi==2023.11.17
-
-# 🔒 CACHING (Optional but recommended)
-django-redis==5.4.0
-redis==4.6.0
-
-# 🔒 Additional Security (Python 3.11.9 compatible versions)
-django-ratelimit==4.1.0         # ✅ Rate limiting
-python-decouple==3.8            # ✅ Environment management
-
-# 🔒 MONITORING & HEALTH CHECKS
-django-health-check==3.17.0     # ✅ Health monitoring
-
-# 🔒 Note: Removed incompatible packages
-# - django-security (doesn't exist in specified version)
-# - django-session-security (compatibility issues)
-# - django-password-validators (not needed, using Django built-in)
-# - sentry-sdk (optional, can add if needed)
-# - All packages requiring Python 3.12+
-
-# This configuration provides maximum security with minimal dependencies
-# All packages are tested to work with Python 3.11.9 on Render
+# 🔒 NOTE: Ultra-minimal secure form system
+# No file uploads, no email, no external APIs
+# Just secure form submission and admin access
