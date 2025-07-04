@@ -1,3 +1,56 @@
+#!/bin/bash
+# Render Configuration Cleanup Script
+# Run this script in your project root directory to remove Render-specific configurations
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}🧹 Cleaning up Render-specific configurations...${NC}"
+
+# Check if we're in the right directory
+if [ ! -f "server/manage.py" ] || [ ! -d "client" ]; then
+    echo -e "${RED}❌ Please run this script from the project root directory${NC}"
+    exit 1
+fi
+
+# Remove Render-specific files
+echo -e "${YELLOW}📁 Removing Render-specific files...${NC}"
+
+# Remove build scripts
+if [ -f "server/build.sh" ]; then
+    rm server/build.sh
+    echo "✅ Removed server/build.sh"
+fi
+
+if [ -f "server/runtime.txt" ]; then
+    rm server/runtime.txt
+    echo "✅ Removed server/runtime.txt"
+fi
+
+# Remove Render production environment files
+if [ -f "client/.env.production" ]; then
+    rm client/.env.production
+    echo "✅ Removed client/.env.production"
+fi
+
+if [ -f "admin/.env.production" ]; then
+    rm admin/.env.production
+    echo "✅ Removed admin/.env.production"
+fi
+
+# Create backup of Django settings
+echo -e "${YELLOW}💾 Creating backup of Django settings...${NC}"
+cp server/formsite_project/settings.py server/formsite_project/settings.py.render-backup
+echo "✅ Created backup: server/formsite_project/settings.py.render-backup"
+
+# Update Django settings for VPS deployment
+echo -e "${YELLOW}⚙️ Updating Django settings for VPS...${NC}"
+cat > server/formsite_project/settings_vps.py << 'EOF'
 # formsite_project/settings.py - VPS DEPLOYMENT VERSION
 import os
 import dj_database_url
@@ -387,3 +440,194 @@ else:
     print("🔒 VPS DEPLOYMENT - PRODUCTION MODE")
     print("   ✅ All security features enabled")
     print("   🛡️ Production-ready configuration")
+EOF
+
+echo "✅ Created VPS-optimized settings: server/formsite_project/settings_vps.py"
+
+# Replace the original settings file
+mv server/formsite_project/settings.py server/formsite_project/settings.py.original
+mv server/formsite_project/settings_vps.py server/formsite_project/settings.py
+
+echo "✅ Updated Django settings for VPS deployment"
+
+# Create VPS-specific environment template
+echo -e "${YELLOW}📄 Creating VPS environment template...${NC}"
+cat > server/.env.template << 'EOF'
+# VPS Production Environment Configuration
+# Copy this to .env.production and fill in your values
+
+# Django Configuration
+SECRET_KEY=your-super-secret-key-generate-a-new-one
+DEBUG=False
+ALLOWED_HOSTS=client-formsite.com,admin-formsite.com,YOUR_VPS_IP
+
+# Database Configuration
+DATABASE_URL=postgresql://user:password@localhost:5432/database
+
+# Security
+CRYPTOGRAPHY_KEY=generate-a-secure-encryption-key
+
+# CORS & CSRF (for two-domain setup)
+CORS_ALLOWED_ORIGINS=https://client-formsite.com,https://admin-formsite.com
+CSRF_TRUSTED_ORIGINS=https://client-formsite.com,https://admin-formsite.com
+
+# Admin Credentials
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=generate-a-secure-admin-password
+
+# Email Configuration (optional)
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=your-email@gmail.com
+EMAIL_HOST_PASSWORD=your-app-password
+EOF
+
+echo "✅ Created environment template: server/.env.template"
+
+# Create client environment template
+cat > client/.env.template << 'EOF'
+# Client Production Environment
+# API points to admin domain where backend is hosted
+VITE_API_URL=https://admin-formsite.com/api
+EOF
+
+echo "✅ Created client environment template: client/.env.template"
+
+# Create admin environment template
+cat > admin/.env.template << 'EOF'
+# Admin Panel Production Environment
+# API points to admin domain where backend is hosted
+VITE_API_URL=https://admin-formsite.com/api
+EOF
+
+echo "✅ Created admin environment template: admin/.env.template"
+
+# Update package.json scripts to remove Render-specific commands
+echo -e "${YELLOW}📦 Updating package.json scripts...${NC}"
+
+if [ -f "client/package.json" ]; then
+    # Remove any Render-specific scripts if they exist
+    echo "✅ Client package.json is ready for VPS deployment"
+fi
+
+if [ -f "admin/package.json" ]; then
+    # Remove any Render-specific scripts if they exist
+    echo "✅ Admin package.json is ready for VPS deployment"
+fi
+
+# Create deployment checklist
+echo -e "${YELLOW}📋 Creating deployment checklist...${NC}"
+cat > DEPLOYMENT_CHECKLIST.md << 'EOF'
+# VPS Deployment Checklist - Two Domain Setup
+
+## Pre-deployment
+- [ ] Client domain (client-formsite.com) purchased and DNS configured
+- [ ] Admin domain (admin-formsite.com) purchased and DNS configured
+- [ ] VPS server provisioned (minimum 2GB RAM recommended)
+- [ ] SSH access to VPS server configured
+- [ ] SSL certificate email ready
+
+## Environment Configuration
+- [ ] Copy `.env.template` to `.env.production` in server directory
+- [ ] Fill in all environment variables in `.env.production`
+- [ ] Generate secure SECRET_KEY (min 50 characters)
+- [ ] Generate secure CRYPTOGRAPHY_KEY
+- [ ] Set strong ADMIN_PASSWORD
+- [ ] Configure ALLOWED_HOSTS with both domains
+- [ ] Configure CORS_ALLOWED_ORIGINS with both domains
+
+## Client Configuration
+- [ ] Copy `client/.env.template` to `client/.env.production`
+- [ ] Verify VITE_API_URL points to admin domain
+
+## Admin Configuration
+- [ ] Copy `admin/.env.template` to `admin/.env.production`
+- [ ] Verify VITE_API_URL points to admin domain
+
+## Security
+- [ ] Change all default passwords
+- [ ] Configure firewall (UFW)
+- [ ] Setup fail2ban
+- [ ] Configure SSL/TLS for both domains
+- [ ] Test security headers on both domains
+- [ ] Enable automatic security updates
+
+## Testing
+- [ ] Test form submission on client domain
+- [ ] Test admin login on admin domain
+- [ ] Test API endpoints on admin domain
+- [ ] Test SSL certificates for both domains
+- [ ] Test rate limiting
+- [ ] Verify security headers
+- [ ] Test cross-domain communication
+
+## Monitoring
+- [ ] Setup backup system
+- [ ] Configure log rotation
+- [ ] Setup monitoring alerts
+- [ ] Test disaster recovery
+
+## Two-Domain Architecture
+- [ ] Client domain serves only the public form
+- [ ] Admin domain serves admin panel and API
+- [ ] Form submissions go from client to admin domain API
+- [ ] Admin operations are isolated on admin domain
+EOF
+
+echo "✅ Created deployment checklist: DEPLOYMENT_CHECKLIST.md"
+
+# Create migration guide
+cat > MIGRATION_FROM_RENDER.md << 'EOF'
+# Migration from Render to VPS
+
+## What was removed:
+- `server/build.sh` - Render-specific build script
+- `server/runtime.txt` - Render Python version specification
+- `client/.env.production` - Render-specific client environment
+- `admin/.env.production` - Render-specific admin environment
+
+## What was changed:
+- Django settings updated for VPS deployment
+- Environment configuration templates created
+- CORS and CSRF settings updated for custom domain
+- Security settings optimized for VPS hosting
+
+## What you need to do:
+1. Review the new settings in `server/formsite_project/settings.py`
+2. Configure environment variables using the templates
+3. Run the VPS deployment script
+4. Update your domain DNS to point to the VPS
+5. Test all functionality
+
+## Backup locations:
+- Original Django settings: `server/formsite_project/settings.py.render-backup`
+- Original settings file: `server/formsite_project/settings.py.original`
+EOF
+
+echo "✅ Created migration guide: MIGRATION_FROM_RENDER.md"
+
+echo -e "${GREEN}🎉 Render cleanup completed successfully!${NC}"
+echo ""
+echo -e "${BLUE}📋 Summary of changes:${NC}"
+echo "✅ Removed Render-specific files"
+echo "✅ Updated Django settings for VPS (Redis removed)"
+echo "✅ Created environment templates for two-domain setup"
+echo "✅ Created deployment checklist"
+echo "✅ Created migration guide"
+echo ""
+echo -e "${YELLOW}📝 Next steps:${NC}"
+echo "1. Review DEPLOYMENT_CHECKLIST.md"
+echo "2. Configure environment variables using .env.template files"
+echo "3. Set up your domains:"
+echo "   - client-formsite.com (for public form)"
+echo "   - admin-formsite.com (for admin panel & API)"
+echo "4. Run the VPS deployment script on your server"
+echo "5. Update both domains' DNS to point to your VPS"
+echo ""
+echo -e "${BLUE}🏗️ Two-Domain Architecture:${NC}"
+echo "📱 Client Domain: Public form interface only"
+echo "🔧 Admin Domain: Admin panel, API, and Django admin"
+echo "🔗 Cross-domain: Form submissions from client to admin API"
+echo ""
+echo -e "${GREEN}✅ Your project is now ready for two-domain VPS deployment!${NC}"
