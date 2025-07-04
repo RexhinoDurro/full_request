@@ -1,66 +1,43 @@
 #!/bin/bash
-# Fixed VPS Deployment Script for Secure Form Application
-# Run as root: sudo bash deploy.sh
+# BitLaunch VPS Deployment Script for FormSite Application
+# Domains: formsite-client.eu (client) and formsite-admin.eu (admin + API)
+# Server IP: 206.71.149.194
 
 set -e
 
-# Colors
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Variables
+# Configuration
+CLIENT_DOMAIN="formsite-client.eu"
+ADMIN_DOMAIN="formsite-admin.eu"
+SERVER_IP="206.71.149.194"
+EMAIL="admin@${CLIENT_DOMAIN}"
 APP_USER="formsite"
 APP_DIR="/home/formsite/formsite-app"
-CLIENT_DOMAIN=""
-ADMIN_DOMAIN=""
-EMAIL=""
 DB_NAME="formsite_db"
 DB_USER="formsite_user"
-DB_PASSWORD=""
-REPO_URL=""
 
-echo -e "${BLUE}🚀 Secure Form Application VPS Deployment${NC}"
-echo "=========================================="
+echo -e "${BLUE}🚀 FormSite BitLaunch VPS Deployment${NC}"
+echo "========================================"
+echo "Client Domain: ${CLIENT_DOMAIN}"
+echo "Admin Domain: ${ADMIN_DOMAIN}"
+echo "Server IP: ${SERVER_IP}"
+echo ""
 
-# Function to prompt for input
-prompt_input() {
-    local prompt="$1"
-    local var_name="$2"
-    local default="$3"
-    
-    echo -e "${YELLOW}$prompt${NC}"
-    if [ ! -z "$default" ]; then
-        echo "Press Enter for default: $default"
-    fi
-    read -r input
-    if [ -z "$input" ] && [ ! -z "$default" ]; then
-        input="$default"
-    fi
-    eval "$var_name='$input'"
+# Generate secure credentials
+generate_password() {
+    openssl rand -base64 32 | tr -d "=+/" | cut -c1-25
 }
 
-# Get configuration
-echo -e "${BLUE}📋 Configuration Setup${NC}"
-prompt_input "Enter your CLIENT domain name (e.g., client-formsite.com):" CLIENT_DOMAIN
-prompt_input "Enter your ADMIN domain name (e.g., admin-formsite.com):" ADMIN_DOMAIN
-prompt_input "Enter your email for SSL certificate:" EMAIL
-prompt_input "Enter database password:" DB_PASSWORD
-prompt_input "Enter your Git repository URL:" REPO_URL
-
-if [ -z "$CLIENT_DOMAIN" ] || [ -z "$ADMIN_DOMAIN" ] || [ -z "$EMAIL" ] || [ -z "$DB_PASSWORD" ] || [ -z "$REPO_URL" ]; then
-    echo -e "${RED}❌ All fields are required!${NC}"
-    exit 1
-fi
-
-# Generate secure keys
-SECRET_KEY=$(openssl rand -base64 32)
+DB_PASSWORD=$(generate_password)
+SECRET_KEY=$(openssl rand -base64 64 | tr -d "=+/" | cut -c1-50)
 CRYPTO_KEY=$(openssl rand -base64 32)
-ADMIN_PASSWORD=$(openssl rand -base64 16)
-
-echo -e "${GREEN}✅ Configuration collected${NC}"
+ADMIN_PASSWORD=$(generate_password)
 
 # Update system
 echo -e "${BLUE}📦 Updating system packages...${NC}"
@@ -72,7 +49,7 @@ apt install -y python3 python3-pip python3-venv nginx postgresql postgresql-cont
     git ufw fail2ban certbot python3-certbot-nginx software-properties-common \
     curl build-essential
 
-# Install Node.js
+# Install Node.js 18.x
 echo -e "${BLUE}📦 Installing Node.js...${NC}"
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 apt install -y nodejs
@@ -84,18 +61,18 @@ if ! id "$APP_USER" &>/dev/null; then
     usermod -aG sudo $APP_USER
 fi
 
-# Clone repository
-echo -e "${BLUE}📁 Cloning repository...${NC}"
+# Clone repository (assuming it's already uploaded to the server)
+echo -e "${BLUE}📁 Setting up application directory...${NC}"
 sudo -u $APP_USER bash << EOF
 cd /home/$APP_USER
-if [ -d '$APP_DIR' ]; then
-    rm -rf $APP_DIR
+if [ ! -d 'formsite-app' ]; then
+    echo "Please upload your application code to /home/$APP_USER/formsite-app"
+    exit 1
 fi
-git clone $REPO_URL formsite-app
 cd formsite-app
 EOF
 
-# Setup database
+# Setup PostgreSQL
 echo -e "${BLUE}🗄️ Setting up PostgreSQL...${NC}"
 sudo -u postgres psql << EOF
 DROP DATABASE IF EXISTS $DB_NAME;
@@ -106,19 +83,20 @@ GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 ALTER USER $DB_USER CREATEDB;
 EOF
 
-# Setup backend
+# Setup Django backend
 echo -e "${BLUE}🐍 Setting up Django backend...${NC}"
 sudo -u $APP_USER bash << EOF
 cd $APP_DIR/server
 python3 -m venv venv
 source venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 
 # Create production environment
 cat > .env.production << ENVEOF
 SECRET_KEY=$SECRET_KEY
 DEBUG=False
-ALLOWED_HOSTS=$CLIENT_DOMAIN,$ADMIN_DOMAIN,$(curl -s ifconfig.me)
+ALLOWED_HOSTS=$CLIENT_DOMAIN,$ADMIN_DOMAIN,$SERVER_IP
 DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME
 CRYPTOGRAPHY_KEY=$CRYPTO_KEY
 ADMIN_USERNAME=admin
@@ -129,17 +107,17 @@ ENVEOF
 
 chmod 600 .env.production
 
-# Run Django setup
+# Set environment and run Django setup
 export \$(cat .env.production | xargs)
 python manage.py migrate
 python manage.py collectstatic --noinput
 
 # Create superuser
-echo "from django.contrib.auth.models import User; User.objects.create_superuser('admin', '$EMAIL', '$ADMIN_PASSWORD')" | python manage.py shell
+echo "from django.contrib.auth.models import User; User.objects.create_superuser('admin', '$EMAIL', '$ADMIN_PASSWORD')" | python manage.py shell || true
 EOF
 
-# Setup frontend
-echo -e "${BLUE}⚛️ Setting up React frontend...${NC}"
+# Setup React client
+echo -e "${BLUE}⚛️ Setting up React client...${NC}"
 sudo -u $APP_USER bash << EOF
 cd $APP_DIR/client
 npm install
@@ -151,8 +129,8 @@ ENVEOF
 npm run build
 EOF
 
-# Setup admin panel
-echo -e "${BLUE}⚛️ Setting up admin panel...${NC}"
+# Setup React admin
+echo -e "${BLUE}⚛️ Setting up React admin...${NC}"
 sudo -u $APP_USER bash << EOF
 cd $APP_DIR/admin
 npm install
@@ -209,7 +187,7 @@ EOF
 # Create Nginx configuration
 echo -e "${BLUE}🌐 Configuring Nginx...${NC}"
 cat > /etc/nginx/sites-available/formsite << EOF
-# Rate limiting
+# Rate limiting zones
 limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
 limit_req_zone \$binary_remote_addr zone=submit:10m rate=2r/m;
 limit_req_zone \$binary_remote_addr zone=admin:10m rate=50r/h;
@@ -232,11 +210,12 @@ server {
     return 301 https://\$server_name\$request_uri;
 }
 
-# CLIENT DOMAIN - Frontend Application
+# CLIENT DOMAIN - Public Form Interface
 server {
     listen 443 ssl http2;
     server_name $CLIENT_DOMAIN;
 
+    # Temporary SSL certificates (will be replaced by Let's Encrypt)
     ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
     ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
 
@@ -250,6 +229,7 @@ server {
     server_tokens off;
     client_max_body_size 10M;
 
+    # Serve React client app
     location / {
         root $APP_DIR/client/dist;
         try_files \$uri \$uri/ /index.html;
@@ -257,6 +237,7 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    # Allow form submissions from client domain to admin domain API
     location /api/submit/ {
         limit_req zone=submit burst=1 nodelay;
         proxy_pass http://formsite_backend;
@@ -266,6 +247,7 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
+    # Block other API endpoints on client domain
     location /api/ {
         return 403;
     }
@@ -274,6 +256,7 @@ server {
         return 403;
     }
 
+    # Static files
     location /static/ {
         alias $APP_DIR/server/staticfiles/;
         expires 1y;
@@ -281,11 +264,12 @@ server {
     }
 }
 
-# ADMIN DOMAIN - Admin Panel and API
+# ADMIN DOMAIN - Admin Panel and Full API
 server {
     listen 443 ssl http2;
     server_name $ADMIN_DOMAIN;
 
+    # Temporary SSL certificates (will be replaced by Let's Encrypt)
     ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
     ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
 
@@ -299,6 +283,7 @@ server {
     server_tokens off;
     client_max_body_size 10M;
 
+    # Serve React admin app
     location / {
         root $APP_DIR/admin/dist;
         try_files \$uri \$uri/ /index.html;
@@ -306,6 +291,7 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    # API endpoints
     location /api/ {
         limit_req zone=api burst=20 nodelay;
         proxy_pass http://formsite_backend;
@@ -315,6 +301,7 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
+    # Django admin
     location /admin/ {
         proxy_pass http://formsite_backend;
         proxy_set_header Host \$host;
@@ -323,6 +310,7 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
+    # Static files
     location /static/ {
         alias $APP_DIR/server/staticfiles/;
         expires 1y;
@@ -334,6 +322,9 @@ EOF
 # Enable site
 ln -sf /etc/nginx/sites-available/formsite /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
+
+# Test nginx configuration
+nginx -t
 
 # Setup firewall
 echo -e "${BLUE}🔥 Configuring firewall...${NC}"
@@ -390,11 +381,8 @@ systemctl restart postgresql
 systemctl enable fail2ban
 systemctl restart fail2ban
 
-# Test nginx configuration
-nginx -t
-
-# Setup SSL certificate
-echo -e "${BLUE}🔐 Setting up SSL certificate...${NC}"
+# Setup SSL certificates
+echo -e "${BLUE}🔐 Setting up SSL certificates...${NC}"
 certbot --nginx -d $CLIENT_DOMAIN -d $ADMIN_DOMAIN --email $EMAIL --agree-tos --non-interactive
 
 # Create backup script
@@ -426,6 +414,11 @@ EOF
 # Setup daily backup cron
 sudo -u $APP_USER bash -c "(crontab -l 2>/dev/null; echo '0 2 * * * /home/$APP_USER/backup.sh') | crontab -"
 
+# Final service check
+echo -e "${BLUE}🔍 Checking service status...${NC}"
+systemctl status formsite.service --no-pager
+systemctl status nginx --no-pager
+
 echo -e "${GREEN}🎉 Deployment completed successfully!${NC}"
 echo "=========================================="
 echo -e "${BLUE}📋 Deployment Summary:${NC}"
@@ -438,17 +431,21 @@ echo -e "${BLUE}🔐 Admin Credentials:${NC}"
 echo "Username: admin"
 echo "Password: $ADMIN_PASSWORD"
 echo ""
+echo -e "${BLUE}🔑 Database Credentials:${NC}"
+echo "Database: $DB_NAME"
+echo "User: $DB_USER"
+echo "Password: $DB_PASSWORD"
+echo ""
 echo -e "${BLUE}🔑 Important Keys (SAVE THESE):${NC}"
 echo "Secret Key: $SECRET_KEY"
 echo "Crypto Key: $CRYPTO_KEY"
-echo "Database Password: $DB_PASSWORD"
 echo ""
 echo -e "${YELLOW}⚠️ Next Steps:${NC}"
-echo "1. Save the admin credentials and keys securely"
+echo "1. Save all credentials securely"
 echo "2. Test your applications:"
 echo "   - Client: https://$CLIENT_DOMAIN"
 echo "   - Admin: https://$ADMIN_DOMAIN"
-echo "3. Configure your domains' DNS to point to this server"
-echo "4. Run regular backups: /home/$APP_USER/backup.sh"
+echo "3. DNS propagation may take up to 24 hours"
+echo "4. Backup script runs daily at 2 AM"
 echo ""
-echo -e "${GREEN}✅ Your secure form application is now live on two domains!${NC}"
+echo -e "${GREEN}✅ Your FormSite application is now live!${NC}"
