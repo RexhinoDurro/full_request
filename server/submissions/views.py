@@ -1,10 +1,11 @@
-# submissions/views.py - ULTRA-SECURE FORM SYSTEM (No external rate limiting)
+# submissions/views.py - FIXED VERSION with working Excel download and proper stats
 
 import re
 import hashlib
 import json
 import logging
 from datetime import timedelta
+from io import BytesIO
 
 from django.http import HttpResponse
 from django.utils import timezone
@@ -20,6 +21,14 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from django.views.decorators.cache import never_cache
 from django.utils.decorators import method_decorator
+
+# 🔧 FIXED: Import openpyxl for Excel generation
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
 
 from .models import Submission
 from .serializers import SecureSubmissionCreateSerializer, SubmissionListSerializer, SubmissionDetailSerializer
@@ -276,6 +285,10 @@ class SubmissionListView(generics.ListAPIView):
             'date_to': lambda x: x if re.match(r'^\d{4}-\d{2}-\d{2}$', x) else None,
             'country': lambda x: x if re.match(r'^[A-Z]{2}$', x) else None,
             'search': lambda x: x[:30] if len(x) <= 30 else None,  # Limit search
+            'service_type': lambda x: x[:50] if len(x) <= 50 else None,
+            'issue_timeframe': lambda x: x[:50] if len(x) <= 50 else None,
+            'primary_goal': lambda x: x[:50] if len(x) <= 50 else None,
+            'communication_method': lambda x: x[:50] if len(x) <= 50 else None,
         }
         
         for key, validator in allowed_filters.items():
@@ -292,6 +305,13 @@ class SubmissionListView(generics.ListAPIView):
             except ValueError:
                 pass
         
+        if safe_filters.get('date_to'):
+            try:
+                end_date = timezone.datetime.strptime(safe_filters['date_to'], '%Y-%m-%d').date()
+                queryset = queryset.filter(submitted_at__date__lte=end_date)
+            except ValueError:
+                pass
+        
         if safe_filters.get('country'):
             queryset = queryset.filter(country=safe_filters['country'])
         
@@ -302,6 +322,19 @@ class SubmissionListView(generics.ListAPIView):
                 Q(name__icontains=search_term) |
                 Q(email__icontains=search_term)
             )
+        
+        # Apply step-based filters
+        if safe_filters.get('service_type'):
+            queryset = queryset.filter(step2__icontains=safe_filters['service_type'])
+        
+        if safe_filters.get('issue_timeframe'):
+            queryset = queryset.filter(step3__icontains=safe_filters['issue_timeframe'])
+        
+        if safe_filters.get('primary_goal'):
+            queryset = queryset.filter(step5__icontains=safe_filters['primary_goal'])
+        
+        if safe_filters.get('communication_method'):
+            queryset = queryset.filter(step7__icontains=safe_filters['communication_method'])
         
         # Log data access
         count = queryset.count()
@@ -460,86 +493,337 @@ def delete_all_submissions(request):
             'message': 'Bulk deletion failed'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# Ultra-secure implementations for admin features
+# 🔧 FIXED: Actual Excel generation implementation
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 @throttle_classes([UltraSecureAdminThrottle])
 @csrf_exempt
 def download_submissions_excel(request):
-    """Ultra-secure Excel download endpoint"""
-    log_security_event(
-        'DATA_EXPORT', 'HIGH', request,
-        f'Admin {request.user.username} exported data to Excel'
-    )
+    """🔧 FIXED: Generate actual Excel file for download"""
     
-    # Implementation would create Excel file with encrypted data
-    # For now, return placeholder
-    return Response({
-        'success': True,
-        'message': 'Excel export prepared',
-        'download_url': '/api/admin/download/file.xlsx'
-    })
+    if not EXCEL_AVAILABLE:
+        return Response({
+            'success': False,
+            'message': 'Excel functionality not available. Install openpyxl.'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    try:
+        # Get filtered submissions
+        filters = request.query_params
+        queryset = Submission.objects.all()
+        
+        # Apply same filters as list view
+        if filters.get('date_from'):
+            try:
+                start_date = timezone.datetime.strptime(filters['date_from'], '%Y-%m-%d').date()
+                queryset = queryset.filter(submitted_at__date__gte=start_date)
+            except ValueError:
+                pass
+        
+        if filters.get('date_to'):
+            try:
+                end_date = timezone.datetime.strptime(filters['date_to'], '%Y-%m-%d').date()
+                queryset = queryset.filter(submitted_at__date__lte=end_date)
+            except ValueError:
+                pass
+        
+        if filters.get('country'):
+            queryset = queryset.filter(country=filters['country'])
+        
+        # Limit for security (max 1000 records)
+        submissions = queryset.order_by('-submitted_at')[:1000]
+        
+        # Create Excel workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Form Submissions"
+        
+        # Headers
+        headers = [
+            'ID', 'UUID', 'Name', 'Email', 'Phone', 'Country',
+            'Company Name', 'Service Type', 'Issue Timeframe', 
+            'Company Acknowledgment', 'Primary Goal', 'How Heard About Us',
+            'Preferred Communication', 'Case Summary', 'Submitted At'
+        ]
+        
+        # Style headers
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+        
+        # Add data rows
+        for row, submission in enumerate(submissions, 2):
+            try:
+                ws.cell(row=row, column=1, value=submission.id)
+                ws.cell(row=row, column=2, value=str(submission.uuid))
+                ws.cell(row=row, column=3, value=str(submission.name) if not submission.anonymized else "ANONYMIZED")
+                ws.cell(row=row, column=4, value=str(submission.email) if not submission.anonymized else "ANONYMIZED")
+                ws.cell(row=row, column=5, value=str(submission.phone) if not submission.anonymized else "ANONYMIZED")
+                ws.cell(row=row, column=6, value=submission.country)
+                ws.cell(row=row, column=7, value=str(submission.step1) if submission.step1 else "")
+                ws.cell(row=row, column=8, value=str(submission.step2) if submission.step2 else "")
+                ws.cell(row=row, column=9, value=str(submission.step3) if submission.step3 else "")
+                ws.cell(row=row, column=10, value=str(submission.step4) if submission.step4 else "")
+                ws.cell(row=row, column=11, value=str(submission.step5) if submission.step5 else "")
+                ws.cell(row=row, column=12, value=str(submission.step6) if submission.step6 else "")
+                ws.cell(row=row, column=13, value=str(submission.step7) if submission.step7 else "")
+                ws.cell(row=row, column=14, value=str(submission.step8) if submission.step8 else "")
+                ws.cell(row=row, column=15, value=submission.submitted_at.strftime('%Y-%m-%d %H:%M:%S'))
+            except Exception as e:
+                # Skip problematic rows but continue
+                logger.error(f"Error processing submission {submission.id}: {e}")
+                continue
+        
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)  # Max width 50
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save to memory
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # Log the export
+        log_security_event(
+            'DATA_EXPORT', 'HIGH', request,
+            f'Admin {request.user.username} exported {len(submissions)} submissions to Excel',
+            {
+                'export_count': len(submissions),
+                'admin_user': request.user.username,
+                'filters_applied': dict(filters)
+            }
+        )
+        
+        # Generate filename with timestamp
+        timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'form_submissions_{timestamp}.xlsx'
+        
+        # Return Excel file
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Content-Length'] = len(output.getvalue())
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Excel export error: {e}", exc_info=True)
+        log_security_event(
+            'API_ERROR', 'HIGH', request,
+            f'Excel export failed: {str(e)}'
+        )
+        return Response({
+            'success': False,
+            'message': 'Failed to generate Excel file'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 @csrf_exempt
 def get_filter_options(request):
-    """Get available filter options for admin"""
+    """🔧 FIXED: Get available filter options with actual data"""
     try:
-        # Get unique values for filters
-        countries = list(Submission.objects.values_list('country', flat=True).distinct())
+        # Get unique values for filters from actual submissions
+        submissions = Submission.objects.all()
+        
+        # Extract unique countries
+        countries = list(submissions.values_list('country', flat=True).distinct().order_by('country'))
+        country_options = [{'code': country, 'display': country} for country in countries if country]
+        
+        # Extract service types from step2
+        service_types = []
+        for submission in submissions:
+            if submission.step2:
+                service_type = str(submission.step2).strip()
+                if service_type and service_type not in service_types:
+                    service_types.append(service_type)
+        
+        # Extract issue timeframes from step3
+        issue_timeframes = []
+        for submission in submissions:
+            if submission.step3:
+                timeframe = str(submission.step3).strip()
+                if timeframe and timeframe not in issue_timeframes:
+                    issue_timeframes.append(timeframe)
+        
+        # Extract acknowledgments from step4
+        acknowledgments = []
+        for submission in submissions:
+            if submission.step4:
+                ack = str(submission.step4).strip()
+                if ack and ack not in acknowledgments:
+                    acknowledgments.append(ack)
+        
+        # Extract primary goals from step5
+        primary_goals = []
+        for submission in submissions:
+            if submission.step5:
+                goal = str(submission.step5).strip()
+                if goal and goal not in primary_goals:
+                    primary_goals.append(goal)
+        
+        # Extract heard abouts from step6
+        heard_abouts = []
+        for submission in submissions:
+            if submission.step6:
+                heard = str(submission.step6).strip()
+                if heard and heard not in heard_abouts:
+                    heard_abouts.append(heard)
+        
+        # Extract communication methods from step7
+        communication_methods = []
+        for submission in submissions:
+            if submission.step7:
+                method = str(submission.step7).strip()
+                if method and method not in communication_methods:
+                    communication_methods.append(method)
         
         return Response({
             'success': True,
-            'filters': {
-                'countries': [{'code': country, 'display': country} for country in countries],
-                'service_types': ['investment fund', 'broker', 'cryptocurrency wallet/exchange', 'other'],
-                'issue_timeframes': ['less than a month', 'up to three months', 'less than a year', 'more than a year'],
-                'primary_goals': ['Networking', 'Career Development', 'Learning', 'Business Growth'],
-                'communication_methods': ['Email', 'Phone', 'Text Message', 'Video Call'],
-            }
+            'service_types': sorted(service_types[:20]),  # Limit to top 20
+            'issue_timeframes': sorted(issue_timeframes[:20]),
+            'acknowledgments': sorted(acknowledgments[:20]),
+            'primary_goals': sorted(primary_goals[:20]),
+            'heard_abouts': sorted(heard_abouts[:20]),
+            'communication_methods': sorted(communication_methods[:20]),
+            'countries': country_options
         })
+        
     except Exception as e:
         logger.error(f"Filter options error: {e}")
-        return Response({'success': False, 'message': 'Failed to load filter options'})
+        return Response({
+            'success': False, 
+            'message': 'Failed to load filter options'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 @csrf_exempt
 def submission_stats(request):
-    """Get ultra-secure submission statistics"""
+    """🔧 FIXED: Get comprehensive submission statistics matching frontend expectations"""
     try:
         from django.db.models import Count
         from datetime import datetime, timedelta
         
+        # Get filters from request
+        filters = request.query_params
+        queryset = Submission.objects.all()
+        
+        # Apply filters to statistics
+        if filters.get('date_from'):
+            try:
+                start_date = timezone.datetime.strptime(filters['date_from'], '%Y-%m-%d').date()
+                queryset = queryset.filter(submitted_at__date__gte=start_date)
+            except ValueError:
+                pass
+        
+        if filters.get('date_to'):
+            try:
+                end_date = timezone.datetime.strptime(filters['date_to'], '%Y-%m-%d').date()
+                queryset = queryset.filter(submitted_at__date__lte=end_date)
+            except ValueError:
+                pass
+        
+        # Apply preset date filters
         now = timezone.now()
+        if filters.get('date_preset'):
+            preset = filters['date_preset']
+            if preset == 'today':
+                queryset = queryset.filter(submitted_at__date=now.date())
+            elif preset == '1_week':
+                one_week_ago = now - timedelta(days=7)
+                queryset = queryset.filter(submitted_at__gte=one_week_ago)
+            elif preset == '2_weeks':
+                two_weeks_ago = now - timedelta(days=14)
+                queryset = queryset.filter(submitted_at__gte=two_weeks_ago)
+            elif preset == '30_days':
+                thirty_days_ago = now - timedelta(days=30)
+                queryset = queryset.filter(submitted_at__gte=thirty_days_ago)
         
         # Basic stats
-        total_submissions = Submission.objects.count()
+        total_submissions = queryset.count()
         
-        # Time-based stats
-        last_24h = Submission.objects.filter(submitted_at__gte=now - timedelta(hours=24)).count()
-        last_7d = Submission.objects.filter(submitted_at__gte=now - timedelta(days=7)).count()
+        # Service type breakdown from step2
+        service_type_breakdown = {}
+        for submission in queryset:
+            if submission.step2:
+                service_type = str(submission.step2).strip()
+                if service_type:
+                    service_type_breakdown[service_type] = service_type_breakdown.get(service_type, 0) + 1
         
         # Country breakdown
-        country_breakdown = dict(
-            Submission.objects.values_list('country').annotate(count=Count('country'))
-        )
+        country_breakdown = {}
+        country_counts = queryset.values('country').annotate(count=Count('country')).order_by('-count')
+        for item in country_counts:
+            if item['country']:
+                country_breakdown[item['country']] = item['count']
+        
+        # Issue timeframe breakdown from step3
+        issue_timeframe_breakdown = {}
+        for submission in queryset:
+            if submission.step3:
+                timeframe = str(submission.step3).strip()
+                if timeframe:
+                    issue_timeframe_breakdown[timeframe] = issue_timeframe_breakdown.get(timeframe, 0) + 1
+        
+        # Daily submissions for charts
+        daily_submissions = []
+        
+        # Determine date range for daily stats
+        if filters.get('date_from') and filters.get('date_to'):
+            start_date = timezone.datetime.strptime(filters['date_from'], '%Y-%m-%d').date()
+            end_date = timezone.datetime.strptime(filters['date_to'], '%Y-%m-%d').date()
+        else:
+            # Default to last 30 days
+            end_date = now.date()
+            start_date = end_date - timedelta(days=30)
+        
+        # Generate daily stats
+        current_date = start_date
+        while current_date <= end_date:
+            day_count = queryset.filter(submitted_at__date=current_date).count()
+            daily_submissions.append({
+                'date': current_date.isoformat(),
+                'count': day_count
+            })
+            current_date += timedelta(days=1)
+        
+        # Date range info
+        date_range = {
+            'from': start_date.isoformat(),
+            'to': end_date.isoformat(),
+            'preset': filters.get('date_preset', '')
+        }
         
         return Response({
             'success': True,
-            'stats': {
-                'total_submissions': total_submissions,
-                'last_24h': last_24h,
-                'last_7d': last_7d,
-                'country_breakdown': country_breakdown,
-                'date_range': {
-                    'from': (now - timedelta(days=30)).date().isoformat(),
-                    'to': now.date().isoformat(),
-                    'preset': '30_days'
-                }
-            }
+            'total_submissions': total_submissions,
+            'service_type_breakdown': service_type_breakdown,
+            'country_breakdown': country_breakdown,
+            'issue_timeframe_breakdown': issue_timeframe_breakdown,
+            'daily_submissions': daily_submissions,
+            'date_range': date_range
         })
+        
     except Exception as e:
-        logger.error(f"Stats error: {e}")
-        return Response({'success': False, 'message': 'Failed to load statistics'})
+        logger.error(f"Stats error: {e}", exc_info=True)
+        return Response({
+            'success': False, 
+            'message': 'Failed to load statistics'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

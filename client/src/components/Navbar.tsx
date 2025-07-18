@@ -1,41 +1,59 @@
-// src/components/Navbar.tsx - Navigation component with imported logo
+// src/components/Navbar.tsx - Conditional navbar with different styles for each page
 import React from 'react';
-import Logo from '../assets/logo.svg'; // Import your logo from assets
+import { ArrowLeft } from 'lucide-react';
+import Logo from '../assets/logo.svg';
 
 interface NavbarProps {
   currentPage: string;
   setCurrentPage: (page: string) => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ setCurrentPage }) => {
-  return (
-    <nav className="bg-black/20 backdrop-blur-sm border-b border-purple-300/20 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-5">
-        <div className="flex justify-between items-center h-20">
-          <div className="flex items-center">
+const Navbar: React.FC<NavbarProps> = ({ currentPage, setCurrentPage }) => {
+  const isHomePage = currentPage === 'home';
+
+  if (isHomePage) {
+    // Transparent overlay navbar for home page
+    return (
+      <nav className="absolute top-0 left-0 right-0 z-50 bg-transparent">
+        <div className="max-w-7xl mx-auto px-5">
+          <div className="flex justify-start items-center h-20">
             <div className="flex-shrink-0 flex items-center">
               <img 
                 src={Logo} 
                 alt="FormSite Logo" 
-                className="h-16 w-auto" 
+                className="h-16 w-auto opacity-90 hover:opacity-100 transition-opacity duration-300" 
               />
             </div>
           </div>
-          
-          <div className="flex items-center space-x-6">
+        </div>
+      </nav>
+    );
+  }
+
+  // Solid navbar for other pages (like request page)
+  return (
+    <nav className="bg-gray-900 shadow-lg border-b border-gray-700 sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          {/* Logo */}
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <img 
+                src={Logo} 
+                alt="FormSite Logo" 
+                className="h-12 w-auto filter brightness-110" 
+              />
+            </div>
+          </div>
+
+          {/* Back to Home Button */}
+          <div className="flex items-center">
             <button
               onClick={() => setCurrentPage('home')}
-              className="relative group text-purple-300 hover:text-white transition-colors duration-300 font-medium"
+              className="flex items-center space-x-2 px-4 py-2 text-gray-300 hover:text-white transition-colors duration-200 font-medium"
             >
-              Home
-              <span className="absolute -bottom-2 left-0 w-0 h-0.5 bg-gradient-to-r from-purple-400 to-white group-hover:w-full transition-all duration-300"></span>
-            </button>
-            
-            <button
-              onClick={() => setCurrentPage('request')}
-              className="bg-gradient-to-r from-purple-400 to-purple-200 hover:bg-white text-purple-900 hover:text-purple-900 px-4 py-2 rounded-lg font-medium transition-all duration-300 transform hover:scale-105"
-            >
-              Request
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Home</span>
             </button>
           </div>
         </div>
