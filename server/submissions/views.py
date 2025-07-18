@@ -1,4 +1,4 @@
-# submissions/views.py - FIXED VERSION with working Excel download and proper stats
+# submissions/views.py - COMPLETE FIXED VERSION with money handling and Excel headers
 
 import re
 import hashlib
@@ -22,7 +22,7 @@ from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from django.views.decorators.cache import never_cache
 from django.utils.decorators import method_decorator
 
-# 🔧 FIXED: Import openpyxl for Excel generation
+# Excel generation (optional dependency)
 try:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -96,6 +96,19 @@ def log_security_event(event_type, severity, request, description, metadata=None
     except Exception as e:
         logger.error(f"Failed to log security event: {e}")
 
+def parse_money_amount(step5_value):
+    """Parse money amount and currency from step5 field"""
+    if not step5_value:
+        return None, None
+    
+    # Format: "amount currency" (e.g., "50000 USD")
+    parts = str(step5_value).strip().split()
+    if len(parts) >= 2:
+        amount = parts[0]
+        currency = parts[1]
+        return amount, currency
+    return step5_value, None
+
 def ultra_secure_spam_detection(request, form_data):
     """Ultra-secure spam detection for form submissions"""
     client_ip = get_client_ip(request)
@@ -112,7 +125,7 @@ def ultra_secure_spam_detection(request, form_data):
         'critical_risk': ['spam', 'test', 'fake', 'bot', 'script'],
         'high_risk': ['urgent', 'click', 'free', 'winner', 'casino', 'viagra'],
         'suspicious_patterns': [
-            r'\b\w*\d{4,}\w*\b',  # Numbers with 4+ digits
+            r'\b\w*\d{4,}\w*\b',  # Numbers with 4+ digits (but exclude money amounts)
             r'[A-Z]{10,}',        # Too many caps
             r'(.)\1{5,}',         # Repeated characters
             r'https?://',         # URLs in form
@@ -132,10 +145,12 @@ def ultra_secure_spam_detection(request, form_data):
         if keyword in all_text:
             risk_score += 15
     
-    # Check suspicious patterns
+    # Check suspicious patterns (but be more lenient with money amounts)
     for pattern in spam_indicators['suspicious_patterns']:
         if re.search(pattern, all_text):
-            risk_score += 10
+            # Don't penalize money amounts heavily
+            if not re.search(r'\b\d+\s+(USD|EUR|GBP|CHF|SEK|NOK|DKK|PLN|CZK|HUF)\b', all_text):
+                risk_score += 10
     
     # 3. Length-based detection
     if len(all_text) > 5000:  # Very long submission
@@ -162,7 +177,7 @@ def ultra_secure_spam_detection(request, form_data):
 @csrf_exempt
 @never_cache
 def submit_form(request):
-    """Ultra-secure form submission endpoint"""
+    """Ultra-secure form submission endpoint with money handling"""
     
     client_ip = get_client_ip(request)
     
@@ -216,11 +231,16 @@ def submit_form(request):
                 # Cache submission hash
                 cache.set(cache_key, True, 86400)  # 24 hours
                 
-                # Log successful submission
+                # Log successful submission with money amount
+                amount, currency = parse_money_amount(submission.step5)
                 log_security_event(
                     'FORM_SUBMISSION', 'LOW', request,
                     f'Secure form submission: {submission.uuid}',
-                    {'submission_id': str(submission.uuid)}
+                    {
+                        'submission_id': str(submission.uuid),
+                        'investment_amount': amount,
+                        'currency': currency
+                    }
                 )
             
             return Response({
@@ -443,7 +463,7 @@ def delete_all_submissions(request):
     if confirmation != 'delete_permanently':
         log_security_event(
             'SUSPICIOUS_ACTIVITY', 'HIGH', request,
-            f'Admin attempted bulk deletion without proper confirmation'
+            'Admin attempted bulk deletion without proper confirmation'
         )
         return Response({
             'success': False,
@@ -493,13 +513,12 @@ def delete_all_submissions(request):
             'message': 'Bulk deletion failed'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# 🔧 FIXED: Actual Excel generation implementation
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 @throttle_classes([UltraSecureAdminThrottle])
 @csrf_exempt
 def download_submissions_excel(request):
-    """🔧 FIXED: Generate actual Excel file for download"""
+    """Generate Excel file with proper headers and money parsing"""
     
     if not EXCEL_AVAILABLE:
         return Response({
@@ -538,27 +557,45 @@ def download_submissions_excel(request):
         ws = wb.active
         ws.title = "Form Submissions"
         
-        # Headers
+        # Define proper column headers
         headers = [
-            'ID', 'UUID', 'Name', 'Email', 'Phone', 'Country',
-            'Company Name', 'Service Type', 'Issue Timeframe', 
-            'Company Acknowledgment', 'Primary Goal', 'How Heard About Us',
-            'Preferred Communication', 'Case Summary', 'Submitted At'
+            'ID',
+            'UUID', 
+            'Name',
+            'Email',
+            'Phone',
+            'Country',
+            'Company Name',
+            'Service Type',
+            'Issue Timeframe', 
+            'Company Acknowledgment',
+            'Investment Amount',
+            'Currency',
+            'How Heard About Us',
+            'Preferred Communication',
+            'Case Summary',
+            'Submitted At',
+            'Data Classification',
+            'Anonymized'
         ]
         
         # Style headers
         header_font = Font(bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         
+        # Add headers as the very first row
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal="center")
         
-        # Add data rows
+        # Add data rows starting from row 2
         for row, submission in enumerate(submissions, 2):
             try:
+                # Parse money amount and currency from step5
+                amount, currency = parse_money_amount(submission.step5)
+                
                 ws.cell(row=row, column=1, value=submission.id)
                 ws.cell(row=row, column=2, value=str(submission.uuid))
                 ws.cell(row=row, column=3, value=str(submission.name) if not submission.anonymized else "ANONYMIZED")
@@ -569,11 +606,14 @@ def download_submissions_excel(request):
                 ws.cell(row=row, column=8, value=str(submission.step2) if submission.step2 else "")
                 ws.cell(row=row, column=9, value=str(submission.step3) if submission.step3 else "")
                 ws.cell(row=row, column=10, value=str(submission.step4) if submission.step4 else "")
-                ws.cell(row=row, column=11, value=str(submission.step5) if submission.step5 else "")
-                ws.cell(row=row, column=12, value=str(submission.step6) if submission.step6 else "")
-                ws.cell(row=row, column=13, value=str(submission.step7) if submission.step7 else "")
-                ws.cell(row=row, column=14, value=str(submission.step8) if submission.step8 else "")
-                ws.cell(row=row, column=15, value=submission.submitted_at.strftime('%Y-%m-%d %H:%M:%S'))
+                ws.cell(row=row, column=11, value=amount if amount else "")
+                ws.cell(row=row, column=12, value=currency if currency else "")
+                ws.cell(row=row, column=13, value=str(submission.step6) if submission.step6 else "")
+                ws.cell(row=row, column=14, value=str(submission.step7) if submission.step7 else "")
+                ws.cell(row=row, column=15, value=str(submission.step8) if submission.step8 else "")
+                ws.cell(row=row, column=16, value=submission.submitted_at.strftime('%Y-%m-%d %H:%M:%S'))
+                ws.cell(row=row, column=17, value=submission.data_classification)
+                ws.cell(row=row, column=18, value="Yes" if submission.anonymized else "No")
             except Exception as e:
                 # Skip problematic rows but continue
                 logger.error(f"Error processing submission {submission.id}: {e}")
@@ -637,7 +677,7 @@ def download_submissions_excel(request):
 @permission_classes([IsAdminUser])
 @csrf_exempt
 def get_filter_options(request):
-    """🔧 FIXED: Get available filter options with actual data"""
+    """Get available filter options including investment amounts"""
     try:
         # Get unique values for filters from actual submissions
         submissions = Submission.objects.all()
@@ -670,13 +710,15 @@ def get_filter_options(request):
                 if ack and ack not in acknowledgments:
                     acknowledgments.append(ack)
         
-        # Extract primary goals from step5
-        primary_goals = []
+        # Extract investment amounts from step5 (now money amounts)
+        investment_amounts = []
         for submission in submissions:
             if submission.step5:
-                goal = str(submission.step5).strip()
-                if goal and goal not in primary_goals:
-                    primary_goals.append(goal)
+                amount, currency = parse_money_amount(submission.step5)
+                if amount and currency:
+                    investment_display = f"{amount} {currency}"
+                    if investment_display not in investment_amounts:
+                        investment_amounts.append(investment_display)
         
         # Extract heard abouts from step6
         heard_abouts = []
@@ -696,10 +738,10 @@ def get_filter_options(request):
         
         return Response({
             'success': True,
-            'service_types': sorted(service_types[:20]),  # Limit to top 20
+            'service_types': sorted(service_types[:20]),
             'issue_timeframes': sorted(issue_timeframes[:20]),
             'acknowledgments': sorted(acknowledgments[:20]),
-            'primary_goals': sorted(primary_goals[:20]),
+            'investment_amounts': sorted(investment_amounts[:20]),
             'heard_abouts': sorted(heard_abouts[:20]),
             'communication_methods': sorted(communication_methods[:20]),
             'countries': country_options
@@ -716,7 +758,7 @@ def get_filter_options(request):
 @permission_classes([IsAdminUser])
 @csrf_exempt
 def submission_stats(request):
-    """🔧 FIXED: Get comprehensive submission statistics matching frontend expectations"""
+    """Get comprehensive submission statistics with money analysis"""
     try:
         from django.db.models import Count
         from datetime import datetime, timedelta
@@ -782,6 +824,47 @@ def submission_stats(request):
                 if timeframe:
                     issue_timeframe_breakdown[timeframe] = issue_timeframe_breakdown.get(timeframe, 0) + 1
         
+        # Investment amount breakdown by currency from step5
+        currency_breakdown = {}
+        total_investment = {}
+        investment_ranges = {
+            'Under 1K': 0,
+            '1K-10K': 0,
+            '10K-50K': 0,
+            '50K-100K': 0,
+            '100K-500K': 0,
+            '500K+': 0
+        }
+        
+        for submission in queryset:
+            if submission.step5:
+                amount, currency = parse_money_amount(submission.step5)
+                if amount and currency:
+                    # Count by currency
+                    currency_breakdown[currency] = currency_breakdown.get(currency, 0) + 1
+                    
+                    # Sum amounts by currency
+                    try:
+                        amount_float = float(amount.replace(',', ''))
+                        total_investment[currency] = total_investment.get(currency, 0) + amount_float
+                        
+                        # Categorize by investment range
+                        if amount_float < 1000:
+                            investment_ranges['Under 1K'] += 1
+                        elif amount_float < 10000:
+                            investment_ranges['1K-10K'] += 1
+                        elif amount_float < 50000:
+                            investment_ranges['10K-50K'] += 1
+                        elif amount_float < 100000:
+                            investment_ranges['50K-100K'] += 1
+                        elif amount_float < 500000:
+                            investment_ranges['100K-500K'] += 1
+                        else:
+                            investment_ranges['500K+'] += 1
+                            
+                    except (ValueError, AttributeError):
+                        pass
+        
         # Daily submissions for charts
         daily_submissions = []
         
@@ -811,12 +894,22 @@ def submission_stats(request):
             'preset': filters.get('date_preset', '')
         }
         
+        # Calculate additional investment statistics
+        avg_investment_by_currency = {}
+        for currency, total in total_investment.items():
+            count = currency_breakdown.get(currency, 1)
+            avg_investment_by_currency[currency] = round(total / count, 2)
+        
         return Response({
             'success': True,
             'total_submissions': total_submissions,
             'service_type_breakdown': service_type_breakdown,
             'country_breakdown': country_breakdown,
             'issue_timeframe_breakdown': issue_timeframe_breakdown,
+            'currency_breakdown': currency_breakdown,
+            'total_investment': total_investment,
+            'avg_investment_by_currency': avg_investment_by_currency,
+            'investment_ranges': investment_ranges,
             'daily_submissions': daily_submissions,
             'date_range': date_range
         })

@@ -1,4 +1,4 @@
-// src/components/StepIndicator.tsx - Professional step indicator
+// src/components/StepIndicator.tsx - Updated with money step
 import React from 'react';
 import { Check } from 'lucide-react';
 
@@ -13,7 +13,7 @@ const StepIndicator: React.FC<StepIndicatorProps> = ({ currentStep, totalSteps }
     'Business Type',
     'Timeline',
     'Fund Status',
-    'Goals',
+    'Investment Amount', // Updated from 'Goals' to 'Investment Amount'
     'Discovery',
     'Communication',
     'Case Summary',
