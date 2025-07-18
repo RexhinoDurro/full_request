@@ -1,3 +1,4 @@
+# submissions/urls.py - Updated with new money-related endpoints
 from django.urls import path
 from . import views
 
@@ -13,4 +14,14 @@ urlpatterns = [
     path('admin/submissions/download/', views.download_submissions_excel, name='download_submissions'),
     path('admin/filter-options/', views.get_filter_options, name='filter_options'),
     path('admin/stats/', views.submission_stats, name='submission_stats'),
+    
+    # 🔧 NEW: Investment and money-related endpoints
+    path('admin/investment-summary/', views.get_investment_summary, name='investment_summary'),
+    path('admin/submissions/bulk-anonymize/', views.bulk_anonymize_submissions, name='bulk_anonymize'),
+    
+    # 🔧 NEW: System monitoring endpoints
+    path('admin/health-check/', views.system_health_check, name='system_health_check'),
+    
+    # 🔧 NEW: Debug and testing endpoints (remove in production)
+    path('admin/test-money-parsing/', views.test_money_parsing, name='test_money_parsing'),
 ]

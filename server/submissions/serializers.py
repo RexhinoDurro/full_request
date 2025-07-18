@@ -1,5 +1,4 @@
-# submissions/serializers.py - UPDATED with money validation for step5
-
+# submissions/serializers.py - ULTRA-SECURE VERSION with ALL security features
 from rest_framework import serializers
 from django.core.validators import EmailValidator, RegexValidator
 from django.utils.html import strip_tags
@@ -9,7 +8,7 @@ import hashlib
 from .models import Submission
 
 class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
-    """🔒 ULTRA-SECURE: Advanced serializer with money validation for step5"""
+    """🔒 ULTRA-SECURE: Advanced serializer with comprehensive security validation"""
     
     # 🔒 SECURITY: Define allowed HTML tags (none for maximum security)
     ALLOWED_TAGS = []
@@ -24,12 +23,6 @@ class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
     phone_validator = RegexValidator(
         regex=r"^\+?[\d\s\-\(\)]{7,20}$",
         message="Phone number must be 7-20 characters and contain only digits, spaces, hyphens, and parentheses"
-    )
-    
-    # 🔧 NEW: Money amount validator for step5
-    money_validator = RegexValidator(
-        regex=r"^\d+(\.\d{1,2})?\s+(USD|EUR|GBP|CHF|SEK|NOK|DKK|PLN|CZK|HUF)$",
-        message="Investment amount must be in format 'amount currency' (e.g., '50000 USD')"
     )
     
     # 🔒 SECURITY: Enhanced field definitions with ultra-strict validation
@@ -69,18 +62,7 @@ class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
     step2 = serializers.CharField(max_length=100, required=False, allow_blank=True)
     step3 = serializers.CharField(max_length=100, required=False, allow_blank=True)
     step4 = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    
-    # 🔧 UPDATED: step5 now handles money amount with currency validation
-    step5 = serializers.CharField(
-        max_length=50, 
-        required=True,
-        validators=[money_validator],
-        error_messages={
-            'required': 'Investment amount and currency are required',
-            'invalid': 'Invalid money format. Use format: amount currency (e.g., 50000 USD)',
-        }
-    )
-    
+    step5 = serializers.CharField(max_length=100, required=False, allow_blank=True)
     step6 = serializers.CharField(max_length=100, required=False, allow_blank=True)
     step7 = serializers.CharField(max_length=100, required=False, allow_blank=True)
     step8 = serializers.CharField(max_length=2000, required=False, allow_blank=True)
@@ -91,49 +73,6 @@ class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
             'step1', 'step2', 'step3', 'step4', 'step5', 'step6', 'step7', 'step8',
             'name', 'email', 'country', 'phone'
         ]
-    
-    def validate_step5(self, value):
-        """🔧 NEW: Ultra-strict money amount validation"""
-        if not value:
-            raise serializers.ValidationError("Investment amount is required")
-        
-        value = value.strip()
-        
-        # Check format: "amount currency"
-        if not re.match(r'^\d+(\.\d{1,2})?\s+(USD|EUR|GBP|CHF|SEK|NOK|DKK|PLN|CZK|HUF)$', value):
-            raise serializers.ValidationError(
-                "Invalid format. Use: amount currency (e.g., '50000 USD', '25000.50 EUR')"
-            )
-        
-        # Parse amount and currency
-        parts = value.split()
-        if len(parts) != 2:
-            raise serializers.ValidationError("Must contain amount and currency separated by space")
-        
-        amount_str, currency = parts
-        
-        # Validate amount
-        try:
-            amount = float(amount_str)
-            if amount <= 0:
-                raise serializers.ValidationError("Investment amount must be greater than 0")
-            if amount > 10000000:  # 10 million limit
-                raise serializers.ValidationError("Investment amount cannot exceed 10,000,000")
-            if amount < 1:
-                raise serializers.ValidationError("Investment amount must be at least 1")
-        except ValueError:
-            raise serializers.ValidationError("Invalid amount format")
-        
-        # Validate currency
-        valid_currencies = ['USD', 'EUR', 'GBP', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF']
-        if currency not in valid_currencies:
-            raise serializers.ValidationError(f"Invalid currency. Allowed: {', '.join(valid_currencies)}")
-        
-        # Check for suspicious patterns in amount
-        if re.search(r'(.)\1{5,}', amount_str):  # Too many repeated digits
-            raise serializers.ValidationError("Investment amount contains suspicious pattern")
-        
-        return value
     
     def validate_email(self, value):
         """🔒 SECURITY: Ultra-strict email validation with threat detection"""
@@ -329,37 +268,15 @@ class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
         return value.strip()
     
     def validate(self, attrs):
-        """🔒 SECURITY: Ultra-comprehensive cross-field validation with money validation"""
-        # Sanitize all text inputs except step5 (money field)
-        for field in ['step1', 'step2', 'step3', 'step4', 'step6', 'step7', 'step8']:
+        """🔒 SECURITY: Ultra-comprehensive cross-field validation and threat detection"""
+        # Sanitize all text inputs
+        for field in ['step1', 'step2', 'step3', 'step4', 'step5', 'step6', 'step7', 'step8']:
             if field in attrs and attrs[field]:
                 attrs[field] = self.sanitize_input(attrs[field])
         
-        # 🔧 NEW: Additional validation for money field (step5)
-        if 'step5' in attrs and attrs['step5']:
-            step5_value = attrs['step5'].strip()
-            
-            # Parse and validate money amount
-            parts = step5_value.split()
-            if len(parts) == 2:
-                amount_str, currency = parts
-                try:
-                    amount = float(amount_str)
-                    
-                    # Check for realistic investment amounts
-                    if amount < 100:
-                        raise serializers.ValidationError("Investment amount seems too low (minimum 100)")
-                    
-                    # Check for suspicious round numbers that might indicate fake data
-                    if amount in [12345, 54321, 99999, 11111, 22222, 33333, 44444, 55555, 66666, 77777, 88888]:
-                        raise serializers.ValidationError("Investment amount appears to be test data")
-                    
-                except ValueError:
-                    raise serializers.ValidationError("Invalid investment amount format")
-        
-        # 🔒 SECURITY: Comprehensive threat analysis across all fields (except money)
+        # 🔒 SECURITY: Comprehensive threat analysis across all fields
         all_text = ' '.join([
-            str(attrs.get(field, '')) for field in attrs.keys() if field != 'step5'
+            str(attrs.get(field, '')) for field in attrs.keys()
         ]).lower()
         
         # 🔒 SECURITY: Advanced SQL injection detection
@@ -429,13 +346,13 @@ class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
             if re.search(pattern, all_text, re.IGNORECASE):
                 raise serializers.ValidationError("Submission contains suspicious path patterns")
         
-        # 🔒 SECURITY: Advanced spam detection (modified for investment forms)
+        # 🔒 SECURITY: Advanced spam detection
         spam_indicators = 0
         
         # Check for excessive URLs
         url_count = len(re.findall(r'http[s]?://|www\.', all_text))
-        if url_count > 1:  # More strict for investment forms
-            spam_indicators += url_count * 3
+        if url_count > 2:
+            spam_indicators += url_count * 2
         
         # Check for excessive repetition
         if re.search(r'(.{3,})\1{3,}', all_text):
@@ -446,11 +363,11 @@ class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
         if caps_ratio > 0.5 and len(all_text) > 20:
             spam_indicators += 3
         
-        # Check for spam keywords (investment-specific)
+        # Check for spam keywords
         spam_keywords = [
             'click here', 'free money', 'make money fast', 'work from home',
-            'guaranteed profit', 'risk free', 'get rich quick', 'instant wealth',
-            'lottery', 'winner', 'congratulations', 'urgent', 'limited time'
+            'weight loss', 'diet pills', 'enlargement', 'casino', 'lottery',
+            'winner', 'congratulations', 'urgent', 'limited time'
         ]
         
         for keyword in spam_keywords:
@@ -466,15 +383,14 @@ class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
         if total_length > 10000:  # Very large submission
             raise serializers.ValidationError("Submission too large")
         
-        if total_length < 20:  # Very small submission (excluding just money amount)
+        if total_length < 10:  # Very small submission
             raise serializers.ValidationError("Submission too short")
         
         # 🔒 SECURITY: Validate required field combinations
-        required_fields = ['name', 'email', 'phone', 'country', 'step5']  # Added step5
+        required_fields = ['name', 'email', 'phone', 'country']
         for field in required_fields:
             if not attrs.get(field, '').strip():
-                field_name = 'Investment Amount' if field == 'step5' else field.title()
-                raise serializers.ValidationError(f"{field_name} is required")
+                raise serializers.ValidationError(f"{field.title()} is required")
         
         return attrs
 
@@ -482,19 +398,17 @@ class UltraSecureSubmissionCreateSerializer(serializers.ModelSerializer):
 SecureSubmissionCreateSerializer = UltraSecureSubmissionCreateSerializer
 
 class SubmissionListSerializer(serializers.ModelSerializer):
-    """🔒 SECURITY: Serializer for listing submissions with money display"""
+    """🔒 SECURITY: Serializer for listing submissions (admin view) with data protection"""
     
     # Mask sensitive data in list view
     email_masked = serializers.SerializerMethodField()
     phone_masked = serializers.SerializerMethodField()
-    investment_amount = serializers.SerializerMethodField()
-    currency = serializers.SerializerMethodField()
     
     class Meta:
         model = Submission
         fields = [
             'id', 'uuid', 'name', 'email_masked', 'country', 'phone_masked',
-            'investment_amount', 'currency', 'submitted_at', 'data_classification', 'anonymized'
+            'submitted_at', 'data_classification', 'anonymized'
         ]
         read_only_fields = ['id', 'uuid', 'submitted_at']
     
@@ -517,47 +431,22 @@ class SubmissionListSerializer(serializers.ModelSerializer):
         if len(phone) > 4:
             return phone[:2] + '*' * (len(phone) - 4) + phone[-2:]
         return "***-***-****"
-    
-    def get_investment_amount(self, obj):
-        """🔧 NEW: Extract investment amount from step5"""
-        if obj.anonymized or not obj.step5:
-            return "ANONYMIZED" if obj.anonymized else ""
-        
-        # Parse "amount currency" format
-        parts = str(obj.step5).strip().split()
-        if len(parts) >= 1:
-            return parts[0]
-        return ""
-    
-    def get_currency(self, obj):
-        """🔧 NEW: Extract currency from step5"""
-        if obj.anonymized or not obj.step5:
-            return "ANONYMIZED" if obj.anonymized else ""
-        
-        # Parse "amount currency" format
-        parts = str(obj.step5).strip().split()
-        if len(parts) >= 2:
-            return parts[1]
-        return ""
 
 class SubmissionDetailSerializer(serializers.ModelSerializer):
-    """🔒 SECURITY: Serializer for detailed submission view with money parsing"""
+    """🔒 SECURITY: Serializer for detailed submission view (admin only) with full access control"""
     
     integrity_status = serializers.SerializerMethodField()
-    investment_amount = serializers.SerializerMethodField()
-    currency = serializers.SerializerMethodField()
     
     class Meta:
         model = Submission
         fields = [
             'id', 'uuid', 'step1', 'step2', 'step3', 'step4', 'step5', 'step6', 'step7', 'step8',
             'name', 'email', 'country', 'phone', 'submitted_at', 'data_classification',
-            'retention_date', 'anonymized', 'checksum', 'integrity_status',
-            'investment_amount', 'currency'
+            'retention_date', 'anonymized', 'checksum', 'integrity_status'
         ]
         read_only_fields = [
             'id', 'uuid', 'submitted_at', 'checksum', 'email_hash', 'phone_hash',
-            'ip_address_hash', 'user_agent_hash', 'integrity_status', 'investment_amount', 'currency'
+            'ip_address_hash', 'user_agent_hash', 'integrity_status'
         ]
     
     def get_integrity_status(self, obj):
@@ -566,61 +455,14 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
             return obj.verify_integrity()
         except Exception:
             return False
-    
-    def get_investment_amount(self, obj):
-        """🔧 NEW: Extract investment amount from step5"""
-        if not obj.step5:
-            return ""
-        
-        # Parse "amount currency" format
-        parts = str(obj.step5).strip().split()
-        if len(parts) >= 1:
-            return parts[0]
-        return ""
-    
-    def get_currency(self, obj):
-        """🔧 NEW: Extract currency from step5"""
-        if not obj.step5:
-            return ""
-        
-        # Parse "amount currency" format
-        parts = str(obj.step5).strip().split()
-        if len(parts) >= 2:
-            return parts[1]
-        return ""
 
 class SubmissionExportSerializer(serializers.ModelSerializer):
-    """🔒 SECURITY: Serializer for secure data export with money fields"""
-    
-    investment_amount = serializers.SerializerMethodField()
-    currency = serializers.SerializerMethodField()
+    """🔒 SECURITY: Serializer for secure data export with audit trail"""
     
     class Meta:
         model = Submission
         fields = [
-            'uuid', 'step1', 'step2', 'step3', 'step4', 'investment_amount', 'currency',
-            'step6', 'step7', 'step8', 'country', 'submitted_at', 'data_classification', 'anonymized'
+            'uuid', 'step1', 'step2', 'step3', 'step4', 'step5', 'step6', 'step7', 'step8',
+            'country', 'submitted_at', 'data_classification', 'anonymized'
         ]
         # Note: PII fields (name, email, phone) excluded from export for security
-    
-    def get_investment_amount(self, obj):
-        """🔧 NEW: Extract investment amount from step5"""
-        if obj.anonymized or not obj.step5:
-            return "ANONYMIZED" if obj.anonymized else ""
-        
-        # Parse "amount currency" format
-        parts = str(obj.step5).strip().split()
-        if len(parts) >= 1:
-            return parts[0]
-        return ""
-    
-    def get_currency(self, obj):
-        """🔧 NEW: Extract currency from step5"""
-        if obj.anonymized or not obj.step5:
-            return "ANONYMIZED" if obj.anonymized else ""
-        
-        # Parse "amount currency" format
-        parts = str(obj.step5).strip().split()
-        if len(parts) >= 2:
-            return parts[1]
-        return ""

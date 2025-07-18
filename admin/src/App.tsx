@@ -1,14 +1,19 @@
+// admin/src/App.tsx - Updated with security monitoring navigation
 import React, { useState, useEffect } from 'react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import SecurityDashboard from './components/SecurityDashboard';
 import Navbar from './components/Navbar';
 import { adminApiClient, type User } from './utils/api';
 import { Loader } from 'lucide-react';
+
+type CurrentPage = 'dashboard' | 'security' | 'submissions' | 'analytics';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState<CurrentPage>('dashboard');
 
   useEffect(() => {
     checkAuthStatus();
@@ -47,6 +52,19 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUser(null);
+    setCurrentPage('dashboard');
+  };
+
+  const renderCurrentPage = () => {
+    switch (currentPage) {
+      case 'security':
+        return <SecurityDashboard />;
+      case 'dashboard':
+      case 'submissions':
+      case 'analytics':
+      default:
+        return <Dashboard />;
+    }
   };
 
   if (isLoading) {
@@ -66,8 +84,13 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navbar username={user?.username} onLogout={handleLogout} />
-      <Dashboard />
+      <Navbar 
+        username={user?.username} 
+        onLogout={handleLogout}
+        currentPage={currentPage}
+        onPageChange={setCurrentPage}
+      />
+      {renderCurrentPage()}
     </div>
   );
 };

@@ -8,6 +8,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('authentication.urls')),
     path('api/', include('submissions.urls')),
+    path('api/security/', include('security_monitoring.api_urls')),  # Add this line
 ]
 
 # Serve static files during development

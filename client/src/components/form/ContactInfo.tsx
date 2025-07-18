@@ -1,6 +1,6 @@
-// src/components/form/ContactInfo.tsx - Professional contact form with enhanced styling
+// client/src/components/form/ContactInfo.tsx - COMPLETE VERSION with enhanced phone validation
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, Globe, Phone, Mail, User, Shield } from 'lucide-react';
+import { ChevronDown, Globe, Phone, Mail, User, Shield, AlertCircle, CheckCircle } from 'lucide-react';
 import type { FormData, Country } from '../../types/form';
 
 const countries: Country[] = [
@@ -70,6 +70,138 @@ const countries: Country[] = [
   { code: 'NZ', name: 'New Zealand', flag: '🇳🇿', prefix: '+64' },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
+// Enhanced phone validation function
+const validatePhoneNumber = (phone: string, countryCode: string): { isValid: boolean; error?: string; formatted?: string } => {
+  if (!phone) {
+    return { isValid: false, error: 'Phone number is required' };
+  }
+
+  // Remove all non-digit characters except + for initial cleaning
+  const cleaned = phone.replace(/[^\d\+]/g, '');
+  
+  // Check if phone is too short or too long
+  if (cleaned.length < 7) {
+    return { isValid: false, error: 'Phone number is too short (minimum 7 digits)' };
+  }
+  
+  if (cleaned.length > 15) {
+    return { isValid: false, error: 'Phone number is too long (maximum 15 digits)' };
+  }
+
+  // Country-specific validation patterns
+  const phonePatterns: Record<string, { pattern: RegExp; format: string; example: string }> = {
+    'US': { 
+      pattern: /^(\+1)?[2-9]\d{2}[2-9]\d{2}\d{4}$/, 
+      format: '+1 (XXX) XXX-XXXX',
+      example: '+1 (555) 123-4567'
+    },
+    'CA': { 
+      pattern: /^(\+1)?[2-9]\d{2}[2-9]\d{2}\d{4}$/, 
+      format: '+1 (XXX) XXX-XXXX',
+      example: '+1 (416) 555-1234'
+    },
+    'GB': { 
+      pattern: /^(\+44)?[1-9]\d{8,9}$/, 
+      format: '+44 XXXX XXXXXX',
+      example: '+44 20 7946 0958'
+    },
+    'DE': { 
+      pattern: /^(\+49)?[1-9]\d{10,11}$/, 
+      format: '+49 XXX XXXXXXXX',
+      example: '+49 30 12345678'
+    },
+    'FR': { 
+      pattern: /^(\+33)?[1-9]\d{8}$/, 
+      format: '+33 X XX XX XX XX',
+      example: '+33 1 42 34 56 78'
+    },
+    'AU': { 
+      pattern: /^(\+61)?[2-9]\d{8}$/, 
+      format: '+61 X XXXX XXXX',
+      example: '+61 2 9876 5432'
+    },
+    'JP': { 
+      pattern: /^(\+81)?[1-9]\d{9,10}$/, 
+      format: '+81 XX XXXX XXXX',
+      example: '+81 3 1234 5678'
+    },
+    'IN': { 
+      pattern: /^(\+91)?[6-9]\d{9}$/, 
+      format: '+91 XXXXX XXXXX',
+      example: '+91 98765 43210'
+    },
+  };
+
+  const countryPattern = phonePatterns[countryCode];
+  
+  if (countryPattern) {
+    // Test against country-specific pattern
+    const digitsOnly = cleaned.replace(/^\+\d{1,3}/, ''); // Remove country code for testing
+    const withCountryCode = cleaned.startsWith('+') ? cleaned : `+${getCountryDialCode(countryCode)}${digitsOnly}`;
+    
+    if (!countryPattern.pattern.test(withCountryCode.replace(/[^\d\+]/g, ''))) {
+      return { 
+        isValid: false, 
+        error: `Invalid ${getCountryName(countryCode)} phone number. Expected format: ${countryPattern.format}. Example: ${countryPattern.example}` 
+      };
+    }
+    
+    return { 
+      isValid: true, 
+      formatted: formatPhoneNumber(withCountryCode, countryCode)
+    };
+  } else {
+    // Generic international validation for other countries
+    const internationalPattern = /^\+\d{7,15}$/;
+    const withPlus = cleaned.startsWith('+') ? cleaned : `+${getCountryDialCode(countryCode)}${cleaned}`;
+    
+    if (!internationalPattern.test(withPlus)) {
+      return { 
+        isValid: false, 
+        error: `Invalid phone number. Please use international format: +${getCountryDialCode(countryCode)} followed by your number` 
+      };
+    }
+    
+    return { 
+      isValid: true, 
+      formatted: withPlus
+    };
+  }
+};
+
+// Helper functions
+const getCountryDialCode = (countryCode: string): string => {
+  const country = countries.find(c => c.code === countryCode);
+  return country?.prefix.replace('+', '') || '1';
+};
+
+const getCountryName = (countryCode: string): string => {
+  const countryNames: Record<string, string> = {
+    'US': 'US', 'CA': 'Canadian', 'GB': 'UK', 'DE': 'German', 'FR': 'French',
+    'AU': 'Australian', 'JP': 'Japanese', 'IN': 'Indian'
+  };
+  return countryNames[countryCode] || 'International';
+};
+
+const formatPhoneNumber = (phone: string, countryCode: string): string => {
+  const cleaned = phone.replace(/[^\d\+]/g, '');
+  
+  // Country-specific formatting
+  if (countryCode === 'US' || countryCode === 'CA') {
+    const match = cleaned.match(/^(\+1)?(\d{3})(\d{3})(\d{4})$/);
+    if (match) {
+      return `+1 (${match[2]}) ${match[3]}-${match[4]}`;
+    }
+  }
+  
+  // Default: just ensure it starts with country code
+  if (!cleaned.startsWith('+')) {
+    return `+${getCountryDialCode(countryCode)}${cleaned}`;
+  }
+  
+  return cleaned;
+};
+
 interface ContactInfoProps {
   formData: FormData;
   onChange: (field: keyof FormData, value: string) => void;
@@ -79,6 +211,7 @@ const ContactInfo: React.FC<ContactInfoProps> = ({ formData, onChange }) => {
   const [selectedCountry, setSelectedCountry] = useState(countries.find(c => c.code === formData.country) || countries[0]);
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
+  const [phoneValidation, setPhoneValidation] = useState<{ isValid: boolean; error?: string; formatted?: string }>({ isValid: true });
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const filteredCountries = countries.filter(country =>
@@ -106,11 +239,27 @@ const ContactInfo: React.FC<ContactInfoProps> = ({ formData, onChange }) => {
     }
   }, []);
 
+  // Enhanced phone change handler
+  const handlePhoneChange = (value: string) => {
+    // Real-time validation
+    const validation = validatePhoneNumber(value, selectedCountry.code);
+    setPhoneValidation(validation);
+    
+    // Update form data
+    onChange('phone', value);
+  };
+
   const handleCountrySelect = (country: Country) => {
     setSelectedCountry(country);
     setShowCountryDropdown(false);
     setCountrySearch('');
     onChange('country', country.code);
+    
+    // Re-validate phone number with new country
+    if (formData.phone) {
+      const validation = validatePhoneNumber(formData.phone, country.code);
+      setPhoneValidation(validation);
+    }
   };
 
   return (
@@ -160,7 +309,7 @@ const ContactInfo: React.FC<ContactInfoProps> = ({ formData, onChange }) => {
           <p className="text-xs text-gray-500">We'll use this email to send you updates about your application</p>
         </div>
         
-        {/* Phone Number */}
+        {/* Enhanced Phone Number Section */}
         <div className="space-y-2">
           <label className="flex items-center space-x-2 text-gray-700 font-medium">
             <Phone className="w-4 h-4 text-gray-500" />
@@ -217,19 +366,53 @@ const ContactInfo: React.FC<ContactInfoProps> = ({ formData, onChange }) => {
               )}
             </div>
             
-            {/* Phone Input */}
-            <input
-              type="tel"
-              value={formData.phone}
-              onChange={(e) => onChange('phone', e.target.value)}
-              placeholder="Enter your phone number"
-              className="flex-1 p-4 bg-white border-2 border-gray-200 rounded-r-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 shadow-sm hover:border-gray-300"
-            />
+            {/* Enhanced Phone Input */}
+            <div className="flex-1 relative">
+              <input
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                placeholder="Enter your phone number"
+                className={`w-full p-4 bg-white border-2 rounded-r-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all duration-200 shadow-sm pr-12 ${
+                  phoneValidation.isValid 
+                    ? 'border-gray-200 focus:ring-purple-500 focus:border-transparent hover:border-gray-300' 
+                    : 'border-red-300 focus:ring-red-500 focus:border-red-500'
+                }`}
+              />
+              
+              {/* Validation Icon */}
+              {formData.phone && (
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  {phoneValidation.isValid ? (
+                    <CheckCircle className="w-5 h-5 text-green-500" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-red-500" />
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>Selected: {selectedCountry.name} ({selectedCountry.prefix})</span>
-            <span>For urgent matters and case updates</span>
+          {/* Enhanced Validation Messages */}
+          <div className="text-xs space-y-1">
+            <div className="flex items-center justify-between text-gray-500">
+              <span>Selected: {selectedCountry.name} ({selectedCountry.prefix})</span>
+              <span>For urgent matters and case updates</span>
+            </div>
+            
+            {!phoneValidation.isValid && phoneValidation.error && (
+              <div className="flex items-center space-x-2 text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{phoneValidation.error}</span>
+              </div>
+            )}
+            
+            {phoneValidation.isValid && formData.phone && phoneValidation.formatted && (
+              <div className="flex items-center space-x-2 text-green-600 bg-green-50 px-3 py-2 rounded-lg">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                <span>Formatted: {phoneValidation.formatted}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

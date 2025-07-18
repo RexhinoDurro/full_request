@@ -91,6 +91,49 @@ export interface SubmissionFilters {
   search?: string;
 }
 
+export interface SecurityEvent {
+  id: number;
+  event_type: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  ip_address: string;
+  user_agent: string;
+  description: string;
+  timestamp: string;
+  resolved: boolean;
+  user?: {
+    id: number;
+    username: string;
+  };
+  metadata?: Record<string, any>;
+}
+
+export interface SecurityStats {
+  events_24h: number;
+  events_7d: number;
+  critical_events_24h: number;
+  high_events_24h: number;
+  top_threats: Array<{ event_type: string; count: number }>;
+  top_ips: Array<{ ip_address: string; count: number }>;
+  threat_trends: Array<{
+    date: string;
+    total: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  }>;
+}
+
+export interface SecurityEventFilters {
+  severity?: string;
+  event_type?: string;
+  resolved?: boolean;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}
+
 // 🔧 FIXED: Add interface for Django REST Framework paginated response
 export interface PaginatedResponse<T> {
   count: number;
@@ -262,6 +305,167 @@ class AdminApiClient {
   async getProfile(): Promise<{ success: boolean; user?: User }> {
     return this.makeRequest('/auth/profile/');
   }
+
+  // 🛡️ SECURITY MONITORING ENDPOINTS
+
+  async getSecurityStats(): Promise<{ success: boolean; data: SecurityStats }> {
+    return this.makeRequest('/security/dashboard/');
+  }
+
+  async getSecurityEvents(filters?: SecurityEventFilters): Promise<{ 
+    success: boolean; 
+    data: { 
+      results: SecurityEvent[]; 
+      count: number; 
+      next: string | null; 
+      previous: string | null; 
+    } 
+  }> {
+    const queryString = filters ? this.buildQueryString(filters) : '';
+    const endpoint = `/security/events/${queryString ? `?${queryString}` : ''}`;
+    return this.makeRequest(endpoint);
+  }
+
+  async getSecurityEventDetail(id: number): Promise<{ success: boolean; data: SecurityEvent }> {
+    return this.makeRequest(`/security/events/${id}/`);
+  }
+
+  async resolveSecurityEvent(id: number): Promise<{ success: boolean; message: string }> {
+    return this.makeRequest(`/security/events/${id}/resolve/`, {
+      method: 'POST',
+    });
+  }
+
+  async getIPWhitelist(): Promise<{ 
+    success: boolean; 
+    data: Array<{
+      id: number;
+      ip_address: string;
+      description: string;
+      created_at: string;
+      is_active: boolean;
+    }> 
+  }> {
+    return this.makeRequest('/security/whitelist/');
+  }
+
+  async addIPToWhitelist(ip_address: string, description: string): Promise<{ success: boolean; message: string }> {
+    return this.makeRequest('/security/whitelist/', {
+      method: 'POST',
+      body: JSON.stringify({ ip_address, description }),
+    });
+  }
+
+  async getIPBlacklist(): Promise<{ 
+    success: boolean; 
+    data: Array<{
+      id: number;
+      ip_address: string;
+      reason: string;
+      blocked_until: string | null;
+      permanent: boolean;
+      created_at: string;
+    }> 
+  }> {
+    return this.makeRequest('/security/blacklist/');
+  }
+
+  async addIPToBlacklist(ip_address: string, reason: string, permanent: boolean = false, hours?: number): Promise<{ success: boolean; message: string }> {
+    return this.makeRequest('/security/blacklist/', {
+      method: 'POST',
+      body: JSON.stringify({ ip_address, reason, permanent, hours }),
+    });
+  }
+
+  async removeIPFromBlacklist(id: number): Promise<{ success: boolean; message: string }> {
+    return this.makeRequest(`/security/blacklist/${id}/`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getSecurityAlerts(): Promise<{ 
+    success: boolean; 
+    data: Array<{
+      id: number;
+      alert_type: string;
+      title: string;
+      description: string;
+      severity: string;
+      status: string;
+      created_at: string;
+      assigned_to?: { username: string };
+    }> 
+  }> {
+    return this.makeRequest('/security/alerts/');
+  }
+
+  async acknowledgeSecurityAlert(id: number): Promise<{ success: boolean; message: string }> {
+    return this.makeRequest(`/security/alerts/${id}/acknowledge/`, {
+      method: 'POST',
+    });
+  }
+
+  async getThreatIntelligence(): Promise<{ 
+    success: boolean; 
+    data: Array<{
+      id: number;
+      threat_type: string;
+      indicator: string;
+      description: string;
+      confidence: number;
+      source: string;
+      is_active: boolean;
+      first_seen: string;
+      last_seen: string;
+    }> 
+  }> {
+    return this.makeRequest('/security/threat-intel/');
+  }
+
+  // 🔍 SECURITY SEARCH AND ANALYSIS
+
+  async searchSecurityEvents(query: string): Promise<{ success: boolean; data: SecurityEvent[] }> {
+    return this.makeRequest(`/security/events/search/?q=${encodeURIComponent(query)}`);
+  }
+
+  async getIPAnalysis(ip_address: string): Promise<{ 
+    success: boolean; 
+    data: {
+      ip_address: string;
+      event_count: number;
+      threat_score: number;
+      first_seen: string;
+      last_seen: string;
+      is_whitelisted: boolean;
+      is_blacklisted: boolean;
+      recent_events: SecurityEvent[];
+      geolocation?: {
+        country: string;
+        city: string;
+        organization: string;
+      };
+    } 
+  }> {
+    return this.makeRequest(`/security/analysis/ip/${encodeURIComponent(ip_address)}/`);
+  }
+
+  async getSecurityMetrics(days: number = 7): Promise<{ 
+    success: boolean; 
+    data: {
+      total_events: number;
+      events_by_day: Array<{ date: string; count: number }>;
+      events_by_type: Array<{ event_type: string; count: number }>;
+      events_by_severity: Array<{ severity: string; count: number }>;
+      top_attacking_ips: Array<{ ip_address: string; count: number }>;
+      response_times: {
+        average: number;
+        median: number;
+      };
+    } 
+  }> {
+    return this.makeRequest(`/security/metrics/?days=${days}`);
+  }
+
 
   // 🔧 FIXED: Handle both paginated and direct response formats
   async getSubmissions(filters?: SubmissionFilters): Promise<{ results: Submission[] }> {
