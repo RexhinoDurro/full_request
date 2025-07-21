@@ -62,4 +62,4 @@ const Navbar: React.FC<NavbarProps> = ({ currentPage, setCurrentPage }) => {
   );
 };
 
-export default Navbar;
+export default Navbar; 

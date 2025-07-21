@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import HomePage from './pages/Home';
 import RequestPage from './pages/Request';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState('home');

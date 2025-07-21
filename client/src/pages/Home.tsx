@@ -12,11 +12,11 @@ const HomePage: React.FC<HomePageProps> = ({ setCurrentPage }) => {
 
   const faqs = [
     {
-      question: "What is FormSite?",
-      answer: "FormSite is a comprehensive platform for creating and managing digital forms and applications. We provide a seamless experience for both form creators and applicants with enterprise-grade security."
+      question: "What is CryptoFacilities",
+      answer: "Crypto Facilities is a London-based, UK‑FCA‑regulated cryptocurrency derivatives platform, operating as a Multilateral Trading Facility (MTF) under the payward/Kraken group umbrella"
     },
     {
-      question: "How do I apply for membership?",
+      question: "How can i get support about my case?",
       answer: "Simply click the 'Submit a Form' button and fill out our comprehensive 9-step application form. The process takes just a few minutes and includes contact information and case details."
     },
     {
@@ -56,7 +56,7 @@ const HomePage: React.FC<HomePageProps> = ({ setCurrentPage }) => {
     {
       icon: FileText,
       title: "Smart Forms",
-      description: "Intelligent form system that adapts to user responses and ensures optimal data collection efficiency."
+      description: "Inteligent form system that adapts to user responses and ensures optimal data collection efficiency."
     }
   ];
 
@@ -69,13 +69,13 @@ const HomePage: React.FC<HomePageProps> = ({ setCurrentPage }) => {
             {/* Left Section - Desktop order / Second on mobile */}
             <div className="text-left space-y-8 order-2 lg:order-1">
               <h1 className="text-6xl lg:text-7xl font-extrabold text-white leading-tight">
-                Welcome to
+                Victim to a 
                 <span className="block bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                  FormSite
+                  Scam?
                 </span>
               </h1>
               <p className="text-xl text-purple-200 leading-relaxed max-w-lg">
-                Your trusted gateway to seamless form submissions and professional digital experiences. Submit your case with confidence.
+                Get Expert Help in Investigating & Tracing Your Lost Assets!
               </p>
               <div className="flex items-center space-x-4 text-purple-300">
                 <CheckCircle className="w-5 h-5 text-green-400" />
@@ -93,9 +93,9 @@ const HomePage: React.FC<HomePageProps> = ({ setCurrentPage }) => {
                     </div>
                     
                     <div className="space-y-4">
-                      <h3 className="text-2xl font-bold text-white">Submit a Form</h3>
+                      <h3 className="text-2xl font-bold text-white">Submit your form</h3>
                       <p className="text-purple-200 text-sm leading-relaxed">
-                        Start your application process with our comprehensive form system
+                        If you are a victim of a scam, remember that you’re not alone. Our certified specialists are here to assist you in conducting a thorough investigation and coordinating with law enforcement to address the fraud.
                       </p>
                     </div>
                     
@@ -126,7 +126,7 @@ const HomePage: React.FC<HomePageProps> = ({ setCurrentPage }) => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-20">
             <h2 className="text-5xl font-bold text-white mb-6">
-              About <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">FormSite</span>
+              About <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">CryptoFacilities</span>
             </h2>
             <p className="text-xl text-purple-200 max-w-4xl mx-auto leading-relaxed">
               We're revolutionizing how organizations and individuals handle complex form submissions with cutting-edge technology, 
@@ -156,7 +156,7 @@ const HomePage: React.FC<HomePageProps> = ({ setCurrentPage }) => {
           <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="text-center p-8 bg-gradient-to-br from-purple-500/10 to-transparent rounded-2xl border border-purple-300/20">
               <div className="text-4xl font-bold text-white mb-2">10,000+</div>
-              <div className="text-purple-300">Forms Processed</div>
+              <div className="text-purple-300">Clients found solution</div>
             </div>
             <div className="text-center p-8 bg-gradient-to-br from-pink-500/10 to-transparent rounded-2xl border border-purple-300/20">
               <div className="text-4xl font-bold text-white mb-2">99.9%</div>
