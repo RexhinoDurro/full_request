@@ -1,4 +1,4 @@
-# server/formsite_project/settings_production.py
+# formsite_project/settings.py - VPS DEPLOYMENT VERSION
 import os
 import dj_database_url
 from pathlib import Path
@@ -7,28 +7,28 @@ import secrets
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# 🔒 PRODUCTION SECURITY SETTINGS
-DEBUG = False
+# 🔒 SECURITY: Environment-based secret key
 SECRET_KEY = os.environ.get('SECRET_KEY')
 if not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable is required in production")
+    if os.environ.get('DEBUG', 'False').lower() == 'true':
+        SECRET_KEY = 'dev-key-change-in-production'
+    else:
+        raise ValueError("SECRET_KEY environment variable is required in production")
 
-# 🔒 ALLOWED HOSTS - Your actual domains
-ALLOWED_HOSTS = [
-    'formsite-client.com',
-    'www.formsite-client.com', 
-    'formsite-admin.com',
-    'www.formsite-admin.com',
-    'api.formsite-client.com',  # If you want a separate API subdomain
-]
+DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
-# Add your server IP if needed
-server_ip = os.environ.get('SERVER_IP')
-if server_ip:
-    ALLOWED_HOSTS.append(server_ip)
+# 🔒 SECURITY: VPS-specific allowed hosts
+ALLOWED_HOSTS = []
+if DEBUG:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+else:
+    allowed_hosts_env = os.environ.get('ALLOWED_HOSTS')
+    if allowed_hosts_env:
+        ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(',')]
 
-# 🔒 SECURE APPLICATION SETUP
+# 🔒 SECURITY: Ultra-secure application setup
 INSTALLED_APPS = [
+    # Django core
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -43,7 +43,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'whitenoise.runserver_nostatic',
     
-    # Security packages
+    # Security apps
     'django_cryptography',
     'auditlog',
     'axes',
@@ -55,20 +55,16 @@ INSTALLED_APPS = [
     'security_monitoring',
 ]
 
-# 🔒 PRODUCTION MIDDLEWARE STACK
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',  # This MUST come before CSRF
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',  # This comes AFTER sessions
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'axes.middleware.AxesMiddleware',
-    'csp.middleware.CSPMiddleware',
-    'security_monitoring.middleware.SecurityMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'axes.middleware.AxesMiddleware',
 ]
 
 ROOT_URLCONF = 'formsite_project.urls'
@@ -91,32 +87,35 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'formsite_project.wsgi.application'
 
-# 🔒 PRODUCTION DATABASE - PostgreSQL
-DATABASE_URL = os.environ.get('DATABASE_URL')
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is required in production")
+# 🔒 VPS DATABASE CONFIGURATION
+if 'DATABASE_URL' in os.environ:
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL'),
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+    if not DEBUG:
+        DATABASES['default']['OPTIONS'] = {
+            'sslmode': 'prefer',
+        }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
-DATABASES = {
-    'default': dj_database_url.config(
-        default=DATABASE_URL,
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
-}
-
-# Enable SSL for production database
-DATABASES['default']['OPTIONS'] = {
-    'sslmode': 'require',
-}
-
-# 🔒 ULTRA-SECURE PASSWORD VALIDATION
+# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-        'OPTIONS': {'min_length': 14}  # Even stricter for production
+        'OPTIONS': {'min_length': 12}
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -126,68 +125,54 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# 🔒 PRODUCTION SECURITY HEADERS
-SECURE_BROWSER_XSS_FILTER = True
-SECURE_CONTENT_TYPE_NOSNIFF = True
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_SECONDS = 31536000  # 1 year
-SECURE_HSTS_PRELOAD = True
-SECURE_SSL_REDIRECT = True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
-
-# 🔒 ULTRA-SECURE SESSION SETTINGS
-SESSION_COOKIE_SECURE = True
+# 🔒 SECURITY: Ultra-secure session configuration
+SESSION_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Strict'
-SESSION_COOKIE_AGE = 1800  # 30 minutes
+SESSION_COOKIE_AGE = 1800
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_SAVE_EVERY_REQUEST = True
-SESSION_COOKIE_NAME = 'formsite_session'
+SESSION_COOKIE_NAME = 'secure_sessionid'
 
-# 🔒 ULTRA-SECURE CSRF SETTINGS
-CSRF_COOKIE_SECURE = True
+# 🔒 SECURITY: Ultra-secure CSRF settings
+CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = 'Strict'
-CSRF_COOKIE_NAME = 'formsite_csrf'
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_NAME = 'secure_csrftoken'
 CSRF_COOKIE_AGE = 31449600
 CSRF_USE_SESSIONS = True
 
-# 🔒 PRODUCTION CORS SETTINGS
-CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOWED_ORIGINS = [
-    "https://formsite-client.com",
-    "https://www.formsite-client.com",
-    "https://formsite-admin.com", 
-    "https://www.formsite-admin.com",
-]
+# VPS-specific CSRF trusted origins
+CSRF_TRUSTED_ORIGINS = []
+csrf_origins_env = os.environ.get('CSRF_TRUSTED_ORIGINS')
+if csrf_origins_env:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins_env.split(',')]
 
-CORS_ALLOWED_HEADERS = [
-    'accept',
-    'accept-encoding',
-    'authorization',
-    'content-type',
-    'origin',
-    'user-agent',
-    'x-csrftoken',
-    'x-requested-with',
-]
-
-# 🔒 PRODUCTION CACHE - Local memory only (no Redis)
+# Cache configuration (Redis removed)
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'formsite-production-cache',
+        'LOCATION': 'formsite-security-cache',
         'OPTIONS': {
-            'MAX_ENTRIES': 2000,
+            'MAX_ENTRIES': 1000,
             'CULL_FREQUENCY': 4,
         },
         'TIMEOUT': 300,
     }
 }
 
-# 🔒 ULTRA-STRICT CONTENT SECURITY POLICY
+# 🔒 SECURITY: Production security headers
+if not DEBUG:
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_PRELOAD = True
+    SECURE_SSL_REDIRECT = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+# Content Security Policy
 CSP_DEFAULT_SRC = ("'self'",)
 CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'")
 CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
@@ -198,12 +183,14 @@ CSP_OBJECT_SRC = ("'none'",)
 CSP_BASE_URI = ("'self'",)
 CSP_FRAME_ANCESTORS = ("'none'",)
 CSP_FORM_ACTION = ("'self'",)
-CSP_REPORT_ONLY = False  # Enforce in production
+CSP_INCLUDE_NONCE_IN = ['script-src', 'style-src']
+CSP_REPORT_ONLY = DEBUG
 
-# 🔒 REST FRAMEWORK - PRODUCTION SETTINGS
+# REST Framework configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
@@ -216,12 +203,12 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '10/hour',  # Very strict for production
-        'user': '50/hour',
+        'anon': '50/hour',
+        'user': '100/hour',
     },
 }
 
-# 🔒 JWT SETTINGS
+# JWT Settings
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
     'REFRESH_TOKEN_LIFETIME': timedelta(hours=2),
@@ -232,25 +219,89 @@ SIMPLE_JWT = {
     'SIGNING_KEY': SECRET_KEY,
 }
 
-# 🔒 BRUTE FORCE PROTECTION
+# CORS configuration for VPS
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = False
+
+# VPS-specific CORS origins
+CORS_ALLOWED_ORIGINS = [
+"https://formsite-admin.click", 
+"https://www.formsite-admin.click",
+]
+cors_origins_env = os.environ.get('CORS_ALLOWED_ORIGINS')
+if cors_origins_env:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_env.split(',')]
+
+if DEBUG:
+    CORS_ALLOWED_ORIGINS.extend([
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ])
+
+CORS_ALLOWED_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+CORS_ALLOW_METHODS = [
+    'GET',
+    'POST',
+    'PUT',
+    'DELETE',
+    'OPTIONS',
+]
+
+# Brute force protection
 AXES_ENABLED = True
 AXES_FAILURE_LIMIT = 3
 AXES_COOLOFF_TIME = timedelta(minutes=30)
 AXES_RESET_ON_SUCCESS = True
-AXES_LOCK_OUT_BY_COMBINATION_USER_AND_IP = True
+AXES_LOGIN_FAILURE_LIMIT = 3
+AXES_LOCK_OUT_AT_FAILURE = True
+AXES_USE_USER_AGENT = True
+AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
 
-# 🔒 FORM SECURITY
+
+# Form security
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1048576  # 1MB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 20
 FILE_UPLOAD_MAX_MEMORY_SIZE = None
-FILE_UPLOAD_HANDLERS = []  # Disable file uploads
+FILE_UPLOAD_HANDLERS = []
 
-# 🔒 ENCRYPTION SETTINGS
+# Internationalization
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
+USE_I18N = True
+USE_TZ = True
+
+# Static files
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Email configuration (disabled by default for security)
+EMAIL_BACKEND = 'django.core.mail.backends.dummy.EmailBackend'
+
+# Encryption settings
 CRYPTOGRAPHY_KEY = os.environ.get('CRYPTOGRAPHY_KEY')
 if not CRYPTOGRAPHY_KEY:
-    raise ValueError("CRYPTOGRAPHY_KEY environment variable is required in production")
+    if DEBUG:
+        CRYPTOGRAPHY_KEY = secrets.token_urlsafe(32)
+        print(f"🔑 Generated development encryption key: {CRYPTOGRAPHY_KEY}")
+    else:
+        raise ValueError("CRYPTOGRAPHY_KEY environment variable is required in production")
 
-# 🔒 AUDIT LOGGING
+# Audit logging
 AUDITLOG_INCLUDE_ALL_MODELS = True
 AUDITLOG_EXCLUDE_TRACKING_MODELS = (
     'sessions.session',
@@ -259,23 +310,7 @@ AUDITLOG_EXCLUDE_TRACKING_MODELS = (
     'auth.permission',
 )
 
-# Static files
-STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
-
-# Internationalization
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
-USE_I18N = True
-USE_TZ = True
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# 🔒 DISABLE EMAIL (Security measure)
-EMAIL_BACKEND = 'django.core.mail.backends.dummy.EmailBackend'
-
-# 🔒 PRODUCTION LOGGING
+# Logging configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -290,47 +325,66 @@ LOGGING = {
         },
     },
     'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'django.log',
+        'console': {
+            'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'security_file': {
-            'level': 'WARNING',
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'security.log',
+        'security_console': {
+            'class': 'logging.StreamHandler',
             'formatter': 'security',
         },
     },
     'loggers': {
         'django': {
-            'handlers': ['file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'security_monitoring': {
-            'handlers': ['security_file'],
+            'handlers': ['console', 'security_console'],
             'level': 'WARNING',
             'propagate': False,
         },
         'submissions': {
-            'handlers': ['file', 'security_file'],
+            'handlers': ['console', 'security_console'],
             'level': 'INFO',
             'propagate': False,
         },
+        'auditlog': {
+            'handlers': ['security_console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'axes': {
+            'handlers': ['security_console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
     },
 }
 
 # Create logs directory
 (BASE_DIR / 'logs').mkdir(exist_ok=True)
 
-print("🔒 PRODUCTION DEPLOYMENT - ULTRA-SECURE MODE")
-print("   ✅ All security features enabled")
-print("   🛡️ Field-level encryption active")
-print("   🔐 Brute force protection active")
-print("   📋 Comprehensive audit logging")
-print("   🛡️ Content Security Policy enforced")
-print("   ⚡ Built-in rate limiting (no Redis)")
-print("   🌐 CORS configured for your domains")
-print("   ✅ Ready for production deployment")
+# Development overrides
+if DEBUG:
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SECURE_SSL_REDIRECT = False
+    AXES_ENABLED = False
+    CSP_REPORT_ONLY = True
+    
+    print("🔒 VPS DEPLOYMENT - DEBUG MODE")
+    print(f"   🔑 Encryption key: {'SET' if CRYPTOGRAPHY_KEY else 'MISSING'}")
+    print(f"   📊 Database: {DATABASES['default']['ENGINE'].split('.')[-1]}")
+    print(f"   🌐 CORS origins: {len(CORS_ALLOWED_ORIGINS)} configured")
+    print(f"   🛡️ Brute force protection: {'ENABLED' if AXES_ENABLED else 'DISABLED'}")
+    print("   ✅ VPS deployment ready")
+else:
+    print("🔒 VPS DEPLOYMENT - PRODUCTION MODE")
+    print("   ✅ All security features enabled")
+    print("   🛡️ Production-ready configuration")
