@@ -1,4 +1,4 @@
-# formsite_project/settings.py - VPS DEPLOYMENT VERSION
+# formsite_project/settings.py - SUBDOMAIN ADMIN VERSION
 import os
 import dj_database_url
 from pathlib import Path
@@ -17,7 +17,7 @@ if not SECRET_KEY:
 
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
-# 🔒 SECURITY: VPS-specific allowed hosts
+# 🔒 SECURITY: Subdomain-aware allowed hosts
 ALLOWED_HOSTS = []
 if DEBUG:
     ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
@@ -25,6 +25,13 @@ else:
     allowed_hosts_env = os.environ.get('ALLOWED_HOSTS')
     if allowed_hosts_env:
         ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(',')]
+    else:
+        # Default production subdomains
+        ALLOWED_HOSTS = [
+            'cryptofacilities.eu',
+            'www.cryptofacilities.eu',
+            'admin-secure.cryptofacilities.eu',  # 🔒 Admin subdomain
+        ]
 
 # 🔒 SECURITY: Ultra-secure application setup
 INSTALLED_APPS = [
@@ -58,9 +65,9 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',  # This MUST come before CSRF
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',  # This comes AFTER sessions
+    'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -134,19 +141,27 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_NAME = 'secure_sessionid'
 
-# 🔒 SECURITY: Ultra-secure CSRF settings
+# 🔒 SECURITY: Ultra-secure CSRF settings with subdomain support
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'  # Allow cross-subdomain for admin
 CSRF_COOKIE_NAME = 'secure_csrftoken'
 CSRF_COOKIE_AGE = 31449600
 CSRF_USE_SESSIONS = True
 
-# VPS-specific CSRF trusted origins
+# 🔒 SUBDOMAIN: CSRF trusted origins for subdomain admin
 CSRF_TRUSTED_ORIGINS = []
 csrf_origins_env = os.environ.get('CSRF_TRUSTED_ORIGINS')
 if csrf_origins_env:
     CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins_env.split(',')]
+else:
+    # Default trusted origins for subdomain setup
+    if not DEBUG:
+        CSRF_TRUSTED_ORIGINS = [
+            'https://cryptofacilities.eu',
+            'https://www.cryptofacilities.eu',
+            'https://admin-secure.cryptofacilities.eu',  # 🔒 Admin subdomain
+        ]
 
 # Cache configuration (Redis removed)
 CACHES = {
@@ -172,13 +187,17 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
-# Content Security Policy
+# Content Security Policy with subdomain support
 CSP_DEFAULT_SRC = ("'self'",)
 CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'")
 CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
 CSP_IMG_SRC = ("'self'", "data:", "https:")
 CSP_FONT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'",)
+CSP_CONNECT_SRC = (
+    "'self'", 
+    "https://cryptofacilities.eu",  # Allow admin to connect to main API
+    "https://admin-secure.cryptofacilities.eu"  # Admin subdomain
+)
 CSP_OBJECT_SRC = ("'none'",)
 CSP_BASE_URI = ("'self'",)
 CSP_FRAME_ANCESTORS = ("'none'",)
@@ -219,18 +238,23 @@ SIMPLE_JWT = {
     'SIGNING_KEY': SECRET_KEY,
 }
 
-# CORS configuration for VPS
+# 🔒 SUBDOMAIN: CORS configuration for subdomain admin
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = False
 
-# VPS-specific CORS origins
-CORS_ALLOWED_ORIGINS = [
-"https://formsite-admin.click", 
-"https://www.formsite-admin.click",
-]
+# 🔒 SUBDOMAIN: Specific CORS origins for subdomain setup
+CORS_ALLOWED_ORIGINS = []
 cors_origins_env = os.environ.get('CORS_ALLOWED_ORIGINS')
 if cors_origins_env:
     CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_env.split(',')]
+else:
+    # Default CORS origins for subdomain setup
+    if not DEBUG:
+        CORS_ALLOWED_ORIGINS = [
+            "https://cryptofacilities.eu",
+            "https://www.cryptofacilities.eu", 
+            "https://admin-secure.cryptofacilities.eu",  # 🔒 Admin subdomain
+        ]
 
 if DEBUG:
     CORS_ALLOWED_ORIGINS.extend([
@@ -240,6 +264,7 @@ if DEBUG:
         "http://127.0.0.1:5173",
     ])
 
+# 🔒 SUBDOMAIN: Enhanced CORS headers for admin subdomain
 CORS_ALLOWED_HEADERS = [
     'accept',
     'accept-encoding',
@@ -249,6 +274,7 @@ CORS_ALLOWED_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'x-admin-domain',  # Custom header for admin subdomain identification
 ]
 
 CORS_ALLOW_METHODS = [
@@ -257,6 +283,12 @@ CORS_ALLOW_METHODS = [
     'PUT',
     'DELETE',
     'OPTIONS',
+]
+
+# 🔒 SUBDOMAIN: Additional security for admin subdomain
+CORS_EXPOSE_HEADERS = [
+    'x-admin-authenticated',
+    'x-security-token',
 ]
 
 # Brute force protection
@@ -268,7 +300,6 @@ AXES_LOGIN_FAILURE_LIMIT = 3
 AXES_LOCK_OUT_AT_FAILURE = True
 AXES_USE_USER_AGENT = True
 AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
-
 
 # Form security
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1048576  # 1MB
@@ -310,6 +341,16 @@ AUDITLOG_EXCLUDE_TRACKING_MODELS = (
     'auth.permission',
 )
 
+# 🔒 SUBDOMAIN: Custom security settings
+ADMIN_SUBDOMAIN_DOMAINS = [
+    'admin-secure.cryptofacilities.eu',
+    'admin.cryptofacilities.eu',  # Alternative admin subdomain
+]
+
+# 🔒 SUBDOMAIN: Additional security middleware configuration
+SECURE_SUBDOMAIN_ADMIN = not DEBUG  # Enable subdomain security in production
+ADMIN_IP_WHITELIST = os.environ.get('ADMIN_IP_WHITELIST', '').split(',') if os.environ.get('ADMIN_IP_WHITELIST') else []
+
 # Logging configuration
 LOGGING = {
     'version': 1,
@@ -323,6 +364,10 @@ LOGGING = {
             'format': 'SECURITY {levelname} {asctime} {module} {message}',
             'style': '{',
         },
+        'admin_subdomain': {
+            'format': 'ADMIN_SUBDOMAIN {levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
     },
     'handlers': {
         'console': {
@@ -332,6 +377,10 @@ LOGGING = {
         'security_console': {
             'class': 'logging.StreamHandler',
             'formatter': 'security',
+        },
+        'admin_console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'admin_subdomain',
         },
     },
     'loggers': {
@@ -347,6 +396,11 @@ LOGGING = {
         },
         'submissions': {
             'handlers': ['console', 'security_console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'admin_subdomain': {
+            'handlers': ['admin_console', 'security_console'],
             'level': 'INFO',
             'propagate': False,
         },
@@ -377,14 +431,17 @@ if DEBUG:
     SECURE_SSL_REDIRECT = False
     AXES_ENABLED = False
     CSP_REPORT_ONLY = True
+    SECURE_SUBDOMAIN_ADMIN = False
     
-    print("🔒 VPS DEPLOYMENT - DEBUG MODE")
+    print("🔒 SUBDOMAIN DEPLOYMENT - DEBUG MODE")
     print(f"   🔑 Encryption key: {'SET' if CRYPTOGRAPHY_KEY else 'MISSING'}")
     print(f"   📊 Database: {DATABASES['default']['ENGINE'].split('.')[-1]}")
     print(f"   🌐 CORS origins: {len(CORS_ALLOWED_ORIGINS)} configured")
+    print(f"   🔗 Admin subdomains: {', '.join(ADMIN_SUBDOMAIN_DOMAINS)}")
     print(f"   🛡️ Brute force protection: {'ENABLED' if AXES_ENABLED else 'DISABLED'}")
-    print("   ✅ VPS deployment ready")
+    print("   ✅ Subdomain admin deployment ready")
 else:
-    print("🔒 VPS DEPLOYMENT - PRODUCTION MODE")
+    print("🔒 SUBDOMAIN DEPLOYMENT - PRODUCTION MODE")
     print("   ✅ All security features enabled")
-    print("   🛡️ Production-ready configuration")
+    print("   🔗 Admin subdomain security active")
+    print("   🛡️ Production-ready subdomain configuration")
